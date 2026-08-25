@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="1">
+    <title>HS Voice インストーラ</title>
+    <organization>@BUNDLE_IDENTIFIER@</organization>
+    <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
+    <options customize="never" require-scripts="false" rootVolumeOnly="true" hostArchitectures="x86_64,arm64"/>
+    <welcome file="welcome.html" mime-type="text/html"/>
+    <readme file="readme.html" mime-type="text/html"/>
+    <conclusion file="conclusion.html" mime-type="text/html"/>
+    <pkg-ref id="@PACKAGE_IDENTIFIER@"/>
+    <choices-outline>
+        <line choice="default">
+            <line choice="@PACKAGE_IDENTIFIER@"/>
+        </line>
+    </choices-outline>
+    <choice id="default"/>
+    <choice id="@PACKAGE_IDENTIFIER@" visible="false">
+        <pkg-ref id="@PACKAGE_IDENTIFIER@"/>
+    </choice>
+    <pkg-ref id="@PACKAGE_IDENTIFIER@" version="@VERSION@" onConclusion="none">HSVoice-component.pkg</pkg-ref>
+</installer-gui-script>
