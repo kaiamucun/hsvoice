@@ -20,6 +20,13 @@
     <SatelliteResourceLanguages>ja;en</SatelliteResourceLanguages>
   </PropertyGroup>
 
+  <!-- WinForms(トレイアイコン用)の暗黙global usingを無効化: WPFの型と衝突するため。
+       TrayIcon.cs など必要なファイルは明示的に using している -->
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="Whisper.net" Version="1.7.4" />
