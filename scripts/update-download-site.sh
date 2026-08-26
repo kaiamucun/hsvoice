@@ -1,0 +1,79 @@
+#!/bin/bash
+# 社内配布用ダウンロードサイト(docs/)を最新pkgで更新する (Claude作成)
+# 使い方: 新しいバージョンをビルドした後に ./scripts/update-download-site.sh を実行し、
+#         git add docs/ && commit && push するだけ。
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+# release/ から最新バージョンを検出
+LATEST_DIR=$(ls -d release/HSVoice-*/ 2>/dev/null | sort -V | tail -1)
+[ -n "$LATEST_DIR" ] || { echo "release/ に HSVoice-* が見つかりません"; exit 1; }
+VERSION=$(basename "$LATEST_DIR" | sed 's/^HSVoice-//')
+PKG="$LATEST_DIR/HSVoice-Installer-$VERSION.pkg"
+[ -f "$PKG" ] || { echo "$PKG が見つかりません"; exit 1; }
+
+mkdir -p docs/downloads
+cp "$PKG" docs/downloads/HSVoice-Installer.pkg   # 常に同じファイル名=リンク不変
+touch docs/.nojekyll
+SIZE=$(du -h docs/downloads/HSVoice-Installer.pkg | cut -f1 | sed 's/K/ KB/;s/M/ MB/')
+DATE=$(date +%Y-%m-%d)
+
+cat > docs/index.html <<HTML_EOF
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>HS Voice ダウンロード</title>
+<style>
+  :root { --bg:#f5f7fa; --card:#ffffff; --text:#1c2733; --sub:#5a6b7d; --line:#e3e9f0;
+          --accent:#167dc8; --accent2:#15cdb1; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#10161d; --card:#1a232e; --text:#e8eef4; --sub:#93a4b5; --line:#2a3745; }
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); min-height:100vh;
+         display:flex; align-items:center; justify-content:center; padding:24px;
+         font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic UI",sans-serif; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:20px;
+          padding:48px 40px; max-width:420px; width:100%; text-align:center;
+          box-shadow:0 8px 32px rgba(7,26,55,.08); }
+  .icon { width:96px; height:96px; margin:0 auto 20px; }
+  h1 { font-size:26px; font-weight:700; letter-spacing:.02em; }
+  .tag { color:var(--sub); font-size:13px; margin-top:6px; }
+  .ver { display:inline-block; margin:18px 0 26px; padding:6px 14px; border-radius:999px;
+         background:linear-gradient(90deg,var(--accent2),var(--accent)); color:#fff;
+         font-size:14px; font-weight:600; }
+  .btn { display:block; padding:16px; border-radius:14px; background:var(--accent);
+         color:#fff; text-decoration:none; font-size:17px; font-weight:700;
+         transition:opacity .15s; }
+  .btn:hover { opacity:.88; }
+  .meta { color:var(--sub); font-size:12px; margin-top:10px; }
+  .steps { text-align:left; margin-top:30px; padding-top:22px; border-top:1px solid var(--line);
+           color:var(--sub); font-size:13px; line-height:1.9; }
+  .steps b { color:var(--text); font-weight:600; display:block; margin-bottom:4px; }
+</style>
+</head>
+<body>
+<main class="card">
+  <img class="icon" src="icon.svg" alt="HS Voice">
+  <h1>HS Voice</h1>
+  <p class="tag">音声入力アプリ(macOS)・社内配布用</p>
+  <div class="ver">v$VERSION($DATE 更新)</div>
+  <a class="btn" href="downloads/HSVoice-Installer.pkg" download>最新版をダウンロード(.pkg)</a>
+  <p class="meta">HSVoice-Installer.pkg / $SIZE</p>
+  <div class="steps">
+    <b>インストール方法</b>
+    1. 上のボタンから pkg をダウンロード<br>
+    2. ダウンロードした pkg をダブルクリックしてインストール<br>
+    3. 「アプリケーション」から HS Voice を起動<br>
+    ※ 開けない場合: システム設定 → プライバシーとセキュリティ →「このまま開く」
+  </div>
+</main>
+</body>
+</html>
+HTML_EOF
+
+cp Assets/AppIcon.svg docs/icon.svg
+echo "更新完了: v$VERSION ($SIZE) → docs/"
