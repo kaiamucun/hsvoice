@@ -16,6 +16,8 @@ final class SettingsStore: ObservableObject {
     static let customVocabulary = "customVocabulary"
     static let spokenFormattingCommands = "spokenFormattingCommands"
     static let completedOnboarding = "completedOnboarding"
+    static let soundFeedback = "soundFeedback"
+    static let useAnalyzerEngine = "useAnalyzerEngine"
   }
 
   private let defaults: UserDefaults
@@ -54,6 +56,15 @@ final class SettingsStore: ObservableObject {
     }
   }
 
+  @Published var soundFeedback: Bool {
+    didSet { defaults.set(soundFeedback, forKey: Key.soundFeedback) }
+  }
+
+  /// Prefer the macOS 26 SpeechAnalyzer engine when its model is ready.
+  @Published var useAnalyzerEngine: Bool {
+    didSet { defaults.set(useAnalyzerEngine, forKey: Key.useAnalyzerEngine) }
+  }
+
   @Published private(set) var launchAtLogin: Bool
   @Published private(set) var launchAtLoginError: String?
   @Published var completedOnboarding: Bool {
@@ -75,6 +86,8 @@ final class SettingsStore: ObservableObject {
     spokenFormattingCommands =
       defaults.object(forKey: Key.spokenFormattingCommands) as? Bool ?? true
     completedOnboarding = defaults.bool(forKey: Key.completedOnboarding)
+    soundFeedback = defaults.object(forKey: Key.soundFeedback) as? Bool ?? true
+    useAnalyzerEngine = defaults.object(forKey: Key.useAnalyzerEngine) as? Bool ?? true
     launchAtLogin = SMAppService.mainApp.status == .enabled
   }
 

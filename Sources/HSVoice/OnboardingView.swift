@@ -38,6 +38,14 @@ struct OnboardingView: View {
           granted: permissions.accessibilityGranted,
           action: model.requestAutomaticInsertionPermission
         )
+        if permissions.canTranscribe && !permissions.accessibilityGranted {
+          Text(
+            "オンにしても「許可済み」にならない場合：システム設定の一覧で「HS Voice」を「−」で削除し、HS Voiceを再起動してからもう一度オンにしてください。"
+          )
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+          .frame(maxWidth: .infinity, alignment: .leading)
+        }
       }
       .padding(.horizontal, 44)
       .padding(.top, 28)
@@ -117,6 +125,15 @@ struct OnboardingView: View {
       _ in
       model.refreshPermissions()
       model.completeOnboardingIfReady()
+    }
+    // The user grants permissions in System Settings while this window stays
+    // in the background, so the state must refresh without a click.
+    // `.task` survives body re-evaluation and is cancelled when the window closes.
+    .task {
+      while !Task.isCancelled {
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        model.refreshPermissionStatus()
+      }
     }
   }
 

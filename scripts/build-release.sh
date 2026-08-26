@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="${VERSION:-1.2.0}"
-BUILD_NUMBER="${BUILD_NUMBER:-9}"
+VERSION="${VERSION:-1.3.0}"
+BUILD_NUMBER="${BUILD_NUMBER:-10}"
 BUNDLE_IDENTIFIER="${BUNDLE_IDENTIFIER:-com.hsvoice.desktop}"
 APP_SIGNING_IDENTITY="${APP_SIGNING_IDENTITY:--}"
 INSTALLER_SIGNING_IDENTITY="${INSTALLER_SIGNING_IDENTITY:-}"
@@ -38,7 +38,7 @@ mkdir -p "$CLANG_MODULE_CACHE_PATH" "$SWIFTPM_MODULECACHE_OVERRIDE"
 
 build_architecture() {
     local architecture="$1"
-    local triple="${architecture}-apple-macosx14.0"
+    local triple="${architecture}-apple-macosx13.0"
     local scratch="$WORK_DIR/swift-$architecture"
 
     xcrun swift build \

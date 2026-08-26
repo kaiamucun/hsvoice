@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="${VERSION:-1.2.0}"
+VERSION="${VERSION:-1.3.0}"
 REQUIRE_SIGNED_INSTALLER="${REQUIRE_SIGNED_INSTALLER:-0}"
 FINAL_DIR="$ROOT_DIR/release/HSVoice-$VERSION"
 FINAL_PKG="$FINAL_DIR/HSVoice-Installer-$VERSION.pkg"

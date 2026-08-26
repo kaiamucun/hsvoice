@@ -115,9 +115,9 @@ enum InsertionMode: String, CaseIterable, Identifiable, Codable {
   var detail: String {
     switch self {
     case .automatic:
-      return "録音前に使っていたアプリへ貼り付けます。アクセシビリティ権限が必要です。"
+      return "録音前に使っていたアプリのカーソル位置へ直接入力します。クリップボードは使いません。アクセシビリティ権限が必要です。"
     case .clipboardOnly:
-      return "自動貼り付けを行わず、認識結果をクリップボードへ残します。"
+      return "自動入力を行わず、認識結果をクリップボードへ残します。"
     }
   }
 }
@@ -192,15 +192,18 @@ struct HistoryEntry: Identifiable, Codable, Equatable {
 }
 
 enum TextInsertionOutcome: Equatable {
-  case pasted
+  case inserted
   case copiedOnly
+  case copiedNoAccessibility
 
   var message: String {
     switch self {
-    case .pasted:
+    case .inserted:
       return "カーソル位置に入力しました"
     case .copiedOnly:
       return "クリップボードにコピーしました"
+    case .copiedNoAccessibility:
+      return "アクセシビリティ権限が無効のためコピーしました"
     }
   }
 }
@@ -208,6 +211,10 @@ enum TextInsertionOutcome: Equatable {
 enum RecordingLimit {
   static let maximumDuration: TimeInterval = 55
   static let undoAvailabilityDuration: TimeInterval = 8
+
+  /// Once this little time remains, the overlay switches from the elapsed time
+  /// to an orange countdown so the 55-second safety stop never surprises.
+  static let countdownWarningRemaining: TimeInterval = 10
 }
 
 struct AppTarget {

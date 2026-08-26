@@ -37,8 +37,20 @@ private func handleFunctionKeyEvent(
   }
 
   guard type == .flagsChanged else { return Unmanaged.passUnretained(event) }
+
   let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
   guard keyCode == Int64(kVK_Function) else { return Unmanaged.passUnretained(event) }
+
+  // Only a delivered *fn* event is evidence that the fast poll can be retired.
+  // A shift press would prove the tap is alive in general, but not that it sees
+  // the one key the shortcut depends on. The tap callback already runs on the
+  // main run loop, so this read is safe and keeps the check from costing a
+  // dispatch on every keystroke once it is confirmed.
+  if !manager.functionTapIsConfirmed {
+    let generation = manager.currentRegistrationGeneration
+    DispatchQueue.main.async { manager.noteFunctionTapDelivered(generation: generation) }
+  }
+
   DispatchQueue.main.async { manager.processFunctionFlags(event.flags) }
 
   // HS Voice owns a standalone fn press so macOS does not also invoke the Globe-key action.
@@ -55,6 +67,8 @@ final class GlobalHotKeyManager {
   private var functionEventSource: CFRunLoopSource?
   private var functionPollingTimer: Timer?
   private var functionKeyState = FunctionKeyStateTracker()
+  private var functionTapConfirmed = false
+  private var registrationGeneration = 0
   private var isPressed = false
 
   deinit {
@@ -109,6 +123,8 @@ final class GlobalHotKeyManager {
 
   func unregister() {
     isPressed = false
+    functionTapConfirmed = false
+    registrationGeneration &+= 1
     functionPollingTimer?.invalidate()
     functionPollingTimer = nil
     functionKeyState = FunctionKeyStateTracker()
@@ -146,6 +162,39 @@ final class GlobalHotKeyManager {
   fileprivate func reenableFunctionKeyTap() {
     guard let functionEventTap else { return }
     CGEvent.tapEnable(tap: functionEventTap, enable: true)
+    // The tap just proved it can stop delivering, so go back to the fast poll
+    // until it demonstrates otherwise.
+    functionTapConfirmed = false
+    installFunctionPollingTimer(interval: Timing.functionKeyPollInterval)
+  }
+
+  fileprivate var functionTapIsConfirmed: Bool { functionTapConfirmed }
+
+  fileprivate var currentRegistrationGeneration: Int { registrationGeneration }
+
+  /// Called the first time the event tap actually delivers a modifier event.
+  ///
+  /// The tap reports fn presses with no delay, so once it is known to work the
+  /// timer is only a repair mechanism for a transition the tap missed. Dropping it
+  /// from 60 Hz to 10 Hz removes almost all of HS Voice's idle CPU wakeups, which
+  /// matters for an app that sits in the menu bar all day.
+  fileprivate func noteFunctionTapDelivered(generation: Int) {
+    // The confirmation is dispatched asynchronously, so one enqueued by a tap that
+    // has since been torn down and re-registered must not vouch for its unproven
+    // replacement. `register` runs again on every activation and settings change.
+    guard generation == registrationGeneration else { return }
+    guard functionEventTap != nil, !functionTapConfirmed else { return }
+    functionTapConfirmed = true
+    installFunctionPollingTimer(interval: Timing.functionKeyWatchdogInterval)
+  }
+
+  private func installFunctionPollingTimer(interval: TimeInterval) {
+    functionPollingTimer?.invalidate()
+    let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
+      self?.pollFunctionKeyState()
+    }
+    functionPollingTimer = timer
+    RunLoop.main.add(timer, forMode: .common)
   }
 
   func processFunctionFlags(_ flags: CGEventFlags) {
@@ -163,15 +212,12 @@ final class GlobalHotKeyManager {
   }
 
   private func registerFunctionKey() -> Bool {
-    // Reading the HID modifier state does not depend on successful creation of an
+    // Reading the HID key state does not depend on successful creation of an
     // Accessibility-backed event tap. Polling is therefore the reliable primary path;
     // the tap below is only an optional low-latency path that suppresses Globe actions.
     functionKeyState = FunctionKeyStateTracker(isDown: physicalFunctionKeyIsDown())
-    let pollingTimer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
-      self?.pollFunctionKeyState()
-    }
-    functionPollingTimer = pollingTimer
-    RunLoop.main.add(pollingTimer, forMode: .common)
+    functionTapConfirmed = false
+    installFunctionPollingTimer(interval: Timing.functionKeyPollInterval)
 
     let eventMask = CGEventMask(1) << CGEventType.flagsChanged.rawValue
     guard
@@ -200,13 +246,29 @@ final class GlobalHotKeyManager {
   }
 
   private func pollFunctionKeyState() {
-    processFunctionKeyState(physicalFunctionKeyIsDown())
+    let keyIsDown = physicalFunctionKeyIsDown()
+
+    if functionKeyState.isDown {
+      // Repairing a stuck "pressed" state may also consult the fn *flag*: a
+      // release is only reported once every fn-related signal is gone.
+      let flagIsDown = CGEventSource.flagsState(.hidSystemState).contains(.maskSecondaryFn)
+      if !keyIsDown && !flagIsDown {
+        processFunctionKeyState(false)
+      }
+    } else if keyIsDown {
+      processFunctionKeyState(true)
+    }
   }
 
+  /// Only the physical fn key's own HID state may *start* a recording.
+  ///
+  /// macOS also raises `maskSecondaryFn` while arrow keys, Home/End, and the
+  /// function row are held — including combos like ⌘+←. Treating that flag as
+  /// "fn is pressed" made HS Voice start recording when the user was merely
+  /// navigating with Command and arrow keys, so the flag is never used to
+  /// detect a press, only to confirm a release.
   private func physicalFunctionKeyIsDown() -> Bool {
-    let state: CGEventSourceStateID = .hidSystemState
-    return CGEventSource.flagsState(state).contains(.maskSecondaryFn)
-      || CGEventSource.keyState(state, key: CGKeyCode(kVK_Function))
+    CGEventSource.keyState(.hidSystemState, key: CGKeyCode(kVK_Function))
   }
 
   private func modifiers(for shortcut: ShortcutChoice) -> UInt32 {

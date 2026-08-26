@@ -7,7 +7,8 @@ enum DiagnosticsReport {
     settings: SettingsStore,
     permissions: PermissionsManager,
     shortcutAvailable: Bool,
-    lastError: String?
+    lastError: String?,
+    lastEngine: String? = nil
   ) -> String {
     let bundle = Bundle.main
     let version =
@@ -33,6 +34,9 @@ enum DiagnosticsReport {
       Activation mode: \(settings.activationMode.rawValue)
       Insertion mode: \(settings.insertionMode.rawValue)
       Prefer on-device: \(yesNo(settings.preferOnDevice))
+      Analyzer engine enabled: \(yesNo(settings.useAnalyzerEngine))
+      Analyzer engine supported: \(yesNo(SpeechTranscriber.analyzerEngineSupported))
+      Last engine used: \(lastEngine ?? "none")
       On-device available: \(yesNo(recognizer?.supportsOnDeviceRecognition ?? false))
       Recognizer available: \(yesNo(recognizer?.isAvailable ?? false))
       Spoken formatting: \(yesNo(settings.spokenFormattingCommands))

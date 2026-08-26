@@ -95,7 +95,7 @@ struct MenuBarView: View {
               .fill(.white.opacity(0.18))
             Image(systemName: model.state.symbolName)
               .font(.system(size: 21, weight: .semibold))
-              .symbolEffect(.pulse, isActive: isRecording)
+              .pulseSymbol(isActive: isRecording)
           }
           .frame(width: 44, height: 44)
 

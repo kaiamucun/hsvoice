@@ -16,12 +16,14 @@ final class DiagnosticsReportTests: XCTestCase {
       settings: settings,
       permissions: PermissionsManager(),
       shortcutAvailable: true,
-      lastError: "network unavailable"
+      lastError: "network unavailable",
+      lastEngine: "SpeechAnalyzer"
     )
 
     XCTAssertFalse(report.contains("CONFIDENTIAL-PRODUCT-CODENAME"))
     XCTAssertTrue(report.contains("never includes dictated text"))
     XCTAssertTrue(report.contains("Last error: network unavailable"))
     XCTAssertTrue(report.contains("Insertion mode: clipboardOnly"))
+    XCTAssertTrue(report.contains("Last engine used: SpeechAnalyzer"))
   }
 }

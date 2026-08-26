@@ -34,6 +34,16 @@ struct SettingsView: View {
       _ in
       model.refreshPermissions()
     }
+    // System Settings usually stays frontmost while the user flips a toggle, so
+    // waiting for HS Voice to become active again left the status looking
+    // stale. A cheap poll keeps 許可済み current the moment macOS grants it.
+    // `.task` survives body re-evaluation and is cancelled when the window closes.
+    .task {
+      while !Task.isCancelled {
+        try? await Task.sleep(nanoseconds: 1_200_000_000)
+        model.refreshPermissionStatus()
+      }
+    }
   }
 
   private var generalTab: some View {
@@ -74,7 +84,8 @@ struct SettingsView: View {
             .font(.caption)
             .foregroundStyle(.orange)
         }
-        Text("1回の音声入力は55秒で安全に終了します。長文は段落ごとに分けると安定します。")
+        Toggle("開始・終了のサウンドを再生", isOn: $settings.soundFeedback)
+        Text("録音中はescキーでキャンセルできます。1回の音声入力は55秒で安全に終了します。長文は段落ごとに分けると安定します。")
           .font(.caption)
           .foregroundStyle(.secondary)
       }
@@ -115,6 +126,21 @@ struct SettingsView: View {
     .disabled(!model.state.allowsConfigurationChanges)
   }
 
+  private var analyzerEngineCaption: String {
+    if !settings.useAnalyzerEngine {
+      return "オフの間は従来エンジンを使用し、カスタム辞書のヒントが有効になります。"
+    }
+    if model.analyzerEngineReady {
+      return "この言語の高精度モデルは準備済みです。カスタム辞書のヒントは高精度エンジンでは適用されません。辞書を優先する場合はオフにしてください。"
+    }
+    return "高精度モデルを準備中です（初回は自動ダウンロードあり）。準備が整うまでは従来エンジンを使用します。"
+  }
+
+  private var vocabularyCaption: String {
+    let count = settings.vocabularyTerms.count
+    return "現在\(count)/100語。次回の音声入力から認識ヒントとして使用します（従来エンジンのみ）。"
+  }
+
   private var shortcutWarning: String {
     if settings.shortcutChoice == .functionKey {
       return "fnキーを使うには、アクセシビリティでHS Voiceを許可してください。fnキーがないキーボードでは別の組み合わせを選べます。"
@@ -130,9 +156,15 @@ struct SettingsView: View {
             Text(locale.nativeName).tag(locale.identifier)
           }
         }
+        if model.analyzerEngineSupported {
+          Toggle("高精度認識エンジンを使用（macOS 26以降）", isOn: $settings.useAnalyzerEngine)
+          Text(analyzerEngineCaption)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
         Toggle("対応している場合はオンデバイス認識を使用", isOn: $settings.preferOnDevice)
         Toggle("「改行」「新しい段落」などの音声コマンドを整形", isOn: $settings.spokenFormattingCommands)
-        Text("選択した言語やmacOSの状態によっては、Appleの音声認識サービスへ接続します。")
+        Text("選択した言語やmacOSの状態によっては、Appleの音声認識サービスへ接続します。高精度エンジンは常にこのMacの中だけで動作します。")
           .font(.caption)
           .foregroundStyle(.secondary)
       }
@@ -150,7 +182,7 @@ struct SettingsView: View {
                 .allowsHitTesting(false)
             }
           }
-        Text("最大100語を次回の音声入力から認識ヒントとして使用します。")
+        Text(vocabularyCaption)
           .font(.caption)
           .foregroundStyle(.secondary)
       }
@@ -213,6 +245,13 @@ struct SettingsView: View {
         granted: permissions.accessibilityGranted,
         action: permissions.openAccessibilitySettings
       )
+      if !permissions.accessibilityGranted {
+        Text(
+          "システム設定でオンにしても「許可済み」にならない場合は、一覧の「HS Voice」を「−」で削除し、HS Voiceを再起動してからもう一度オンにしてください。アプリを更新した直後は再設定が必要なことがあります。"
+        )
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+      }
 
       HStack {
         Button("マイクと音声認識をリクエスト") {

@@ -4,7 +4,7 @@
 Finish the current HS Voice as one polished native macOS dictation product and deliver one canonical, reproducible installer for internal company distribution.
 
 ## Current Phase
-Phase 38 — Final Verification & Single Handoff (complete)
+Phase 40 — Usability & Mac Compatibility (implemented; awaiting on-Mac build, test, and installer rebuild)
 
 ## Phases
 
@@ -324,6 +324,18 @@ Phase 38 — Final Verification & Single Handoff (complete)
 | Repeating `open` did not simulate a physical Dock reopen event for the windowless running app | 1 | Use a direct application reopen Apple event for behavioral verification instead of repeating the same launch command. |
 | Direct `reopen` Apple event did not surface the settings window | 2 | Verify the running bundle path and event target, then choose a deterministic activation path instead of retrying the same event. |
 | LaunchServices Bundle-ID reopen highlighted the Dock item but did not surface the settings window | 3 | Stop scripted reopen attempts; the user's requested Dock icon and tooltip are visually verified, while Settings remains directly available from the menu bar and Command-comma. |
+
+### Phase 39: Performance & Maintainability Optimization
+- [x] Profile the dictation path by reading and identify where perceived latency actually accumulates
+- [x] Replace the fixed post-speech recognition wait with a quiet-window policy bounded by a hard deadline
+- [x] Cache and prewarm the speech recognizer; skip the activation round-trip when the target never lost focus
+- [x] Precompile text-processing patterns and improve CJK spacing, spoken-break punctuation, and Latin sentence casing
+- [x] Cut idle and recording cost: fn-poll downgrade, audio-level throttling, vDSP RMS, per-second duration publishing
+- [x] Collect every user-perceived delay in `Timing.swift` and split read-only presentation out of `AppModel`
+- [x] Add finalization-policy, throttle, timing-budget, and text-processing regression tests
+- [ ] Run `xcrun swift build` and `xcrun swift test` on macOS (blocked: no Swift toolchain in the working session)
+- [ ] Bump build metadata and rebuild the single installer once the toolchain run passes
+- **Status:** implemented, awaiting compilation
 
 ## Notes
 - Preserve any user changes if files appear later in the worktree.

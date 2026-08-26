@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 
 @MainActor
@@ -30,57 +31,13 @@ final class AppModel: ObservableObject {
   private var lastInsertionTarget: AppTarget?
   private var hasStartedServices = false
   private var recordingContext: RecordingContext?
+  private var cancellables: Set<AnyCancellable> = []
+  private var escapeMonitors: [Any] = []
 
   private struct RecordingContext {
     let localeIdentifier: String
     let spokenFormattingCommands: Bool
     let keepHistory: Bool
-  }
-
-  var isListening: Bool { state == .listening }
-
-  var menuBarSymbol: String {
-    state.symbolName
-  }
-
-  var shortcutDisplayText: String {
-    settings.shortcutChoice.displayName
-  }
-
-  var formattedRecordingDuration: String {
-    let seconds = max(0, Int(recordingDuration.rounded(.down)))
-    return String(format: "%d:%02d", seconds / 60, seconds % 60)
-  }
-
-  var recordingProgress: Double {
-    min(1, recordingDuration / RecordingLimit.maximumDuration)
-  }
-
-  var versionDisplay: String {
-    let version =
-      Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-      ?? "Development"
-    let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
-    return build.map { "HS Voice \(version) (\($0))" } ?? "HS Voice \(version)"
-  }
-
-  var stateDetail: String {
-    switch state {
-    case .idle:
-      return "\(shortcutDisplayText)でどこからでも音声入力"
-    case .requestingPermission:
-      return "macOSの確認に応答してください"
-    case .listening:
-      if settings.insertionMode == .clipboardOnly {
-        return "クリップボードへコピー • \(formattedRecordingDuration)"
-      }
-      return targetApplicationName.map { "\($0)へ入力 • \(formattedRecordingDuration)" }
-        ?? "録音中 • \(formattedRecordingDuration)"
-    case .processing:
-      return "句読点と空白を整えています"
-    case .success(let message), .error(let message):
-      return message
-    }
   }
 
   func startServices() {
@@ -91,7 +48,40 @@ final class AppModel: ObservableObject {
     hotKeyManager.onPressed = { [weak self] in self?.handleShortcutPressed() }
     hotKeyManager.onReleased = { [weak self] in self?.handleShortcutReleased() }
     shortcutAvailable = hotKeyManager.register(settings.shortcutChoice)
+    observeLanguageChanges()
     OverlayWindowController.shared.show()
+  }
+
+  /// Keeps a recognizer for the selected language ready before the key is pressed.
+  ///
+  /// `@Published` replays the current value on subscribe, so this covers both the
+  /// initial language and every later switch from the menu bar or settings.
+  private func observeLanguageChanges() {
+    settings.$localeIdentifier
+      .removeDuplicates()
+      .sink { [weak self] identifier in
+        Task { @MainActor in
+          guard let self, self.permissions.canTranscribe else { return }
+          self.transcriber.prewarm(
+            localeIdentifier: identifier,
+            includeAnalyzer: self.settings.useAnalyzerEngine
+          )
+        }
+      }
+      .store(in: &cancellables)
+
+    // Turning the high-accuracy engine on should immediately fetch its model,
+    // so the very next dictation can already use it.
+    settings.$useAnalyzerEngine
+      .removeDuplicates()
+      .filter { $0 }
+      .sink { [weak self] _ in
+        Task { @MainActor in
+          guard let self, self.permissions.canTranscribe else { return }
+          self.transcriber.prewarm(localeIdentifier: self.settings.localeIdentifier)
+        }
+      }
+      .store(in: &cancellables)
   }
 
   func setShortcut(_ shortcut: ShortcutChoice) {
@@ -132,6 +122,7 @@ final class AppModel: ObservableObject {
 
   func cancelListening() {
     guard state == .listening || state == .processing else { return }
+    removeEscapeMonitors()
     transcriber.cancel()
     stopRecordingTimer(resetDuration: true)
     partialTranscript = ""
@@ -150,16 +141,22 @@ final class AppModel: ObservableObject {
   }
 
   func repeatLastTranscript() {
-    guard !lastTranscript.isEmpty, !state.isBusy else { return }
+    insertText(lastTranscript)
+  }
+
+  /// Inserts arbitrary text (the last transcript, or a history entry) into the
+  /// most recent external application, honoring the current insertion mode.
+  func insertText(_ text: String) {
+    guard !text.isEmpty, !state.isBusy else { return }
     resetWorkItem?.cancel()
     expireUndoAvailability()
 
-    let repeatTarget =
+    let insertionTarget =
       settings.insertionMode == .automatic ? insertionService.currentTarget() : nil
     state = .processing
     Task {
-      let outcome = await insertionService.insert(lastTranscript, into: repeatTarget)
-      finishInsertion(outcome, target: repeatTarget)
+      let outcome = await insertionService.insert(text, into: insertionTarget)
+      finishInsertion(outcome, target: insertionTarget)
     }
   }
 
@@ -173,7 +170,7 @@ final class AppModel: ObservableObject {
       showTransientSuccess("直前の入力を取り消しました")
     } else {
       showError("入力先が変わったため取り消せませんでした")
-      scheduleReset(after: 2.2)
+      scheduleReset(after: Timing.recoverableErrorResetDelay)
     }
   }
 
@@ -183,7 +180,8 @@ final class AppModel: ObservableObject {
       settings: settings,
       permissions: permissions,
       shortcutAvailable: shortcutAvailable,
-      lastError: lastErrorMessage
+      lastError: lastErrorMessage,
+      lastEngine: transcriber.lastUsedEngine?.rawValue
     )
     NSPasteboard.general.clearContents()
     NSPasteboard.general.setString(report, forType: .string)
@@ -204,6 +202,7 @@ final class AppModel: ObservableObject {
     permissions.refresh()
 
     if permissions.canTranscribe {
+      prewarmRecognizerIfPossible()
       state = .idle
       if settings.insertionMode == .automatic && !permissions.canInsertText {
         requestAutomaticInsertionPermission()
@@ -247,10 +246,32 @@ final class AppModel: ObservableObject {
   func refreshPermissions() {
     permissions.refresh()
     restoreAutomaticInsertionIfAvailable()
+    // On a first run the language subscription fires before the user has granted
+    // anything, so this is what actually warms the recognizer for the very first
+    // dictation after onboarding.
+    prewarmRecognizerIfPossible()
     if settings.shortcutChoice == .functionKey, state.allowsConfigurationChanges {
       shortcutAvailable = hotKeyManager.register(settings.shortcutChoice)
     }
     objectWillChange.send()
+  }
+
+  /// Lightweight variant for the 1-second poll while a permissions screen is
+  /// visible: re-reads authorization state without re-registering the global
+  /// shortcut (tearing the fn event tap down every second would reset its
+  /// confirmed state and its low-power watchdog).
+  func refreshPermissionStatus() {
+    permissions.refresh()
+    restoreAutomaticInsertionIfAvailable()
+    _ = completeOnboardingIfReady()
+  }
+
+  private func prewarmRecognizerIfPossible() {
+    guard permissions.canTranscribe else { return }
+    transcriber.prewarm(
+      localeIdentifier: settings.localeIdentifier,
+      includeAnalyzer: settings.useAnalyzerEngine
+    )
   }
 
   private func restoreAutomaticInsertionIfAvailable() {
@@ -290,6 +311,7 @@ final class AppModel: ObservableObject {
         localeIdentifier: settings.localeIdentifier,
         vocabulary: settings.vocabularyTerms,
         preferOnDevice: settings.preferOnDevice,
+        useAnalyzerEngine: settings.useAnalyzerEngine,
         onPartial: { [weak self] text in
           self?.partialTranscript = text
         },
@@ -301,25 +323,33 @@ final class AppModel: ObservableObject {
         }
       )
       startRecordingTimer()
+      installEscapeMonitors()
+      playSoundCue(SoundCue.start)
     } catch {
       transcriber.cancel()
       stopRecordingTimer(resetDuration: true)
       recordingContext = nil
       showError(error.localizedDescription)
       OverlayWindowController.shared.show()
-      scheduleReset(after: 2.5)
+      scheduleReset(after: Timing.startupErrorResetDelay)
     }
   }
 
   private func stopListening() {
     guard state == .listening else { return }
+    removeEscapeMonitors()
     stopRecordingTimer()
     state = .processing
     audioLevel = 0
+    playSoundCue(SoundCue.stop)
     transcriber.finish()
   }
 
   private func completeTranscription(_ result: Result<String, Error>) {
+    // A session can complete while still `.listening` (recognizer error,
+    // early final result), which skips `stopListening()` — the monitors must
+    // never outlive the recording.
+    removeEscapeMonitors()
     stopRecordingTimer()
     guard let recordingContext else { return }
     self.recordingContext = nil
@@ -337,7 +367,7 @@ final class AppModel: ObservableObject {
       )
       guard !text.isEmpty else {
         showError("音声を認識できませんでした")
-        scheduleReset(after: 2.2)
+        scheduleReset(after: Timing.recoverableErrorResetDelay)
         return
       }
 
@@ -360,7 +390,7 @@ final class AppModel: ObservableObject {
 
     case .failure(let error):
       showError(readableRecognitionError(error))
-      scheduleReset(after: 2.6)
+      scheduleReset(after: Timing.recognitionErrorResetDelay)
     }
   }
 
@@ -373,16 +403,36 @@ final class AppModel: ObservableObject {
   }
 
   private func finishInsertion(_ outcome: TextInsertionOutcome, target: AppTarget?) {
+    var outcome = outcome
+    // The service reports .copiedOnly when it had no target to type into, but in
+    // automatic mode with the Accessibility grant missing the real story is the
+    // permission — surface that instead of a quiet "copied".
+    if outcome == .copiedOnly, settings.insertionMode == .automatic,
+      !permissions.canInsertText
+    {
+      outcome = .copiedNoAccessibility
+    }
     lastOutcome = outcome
+
+    // Falling back to the clipboard because the Accessibility grant is not
+    // actually working (the classic stale-grant trap after a rebuild) is a
+    // problem the user must see, not a quiet success.
+    if outcome == .copiedNoAccessibility {
+      expireUndoAvailability()
+      showError(outcome.message)
+      scheduleReset(after: Timing.recoverableErrorResetDelay)
+      return
+    }
+
     lastErrorMessage = nil
     state = .success(outcome.message)
 
-    if outcome == .pasted {
+    if outcome == .inserted {
       makeUndoAvailable(for: target)
     } else {
       expireUndoAvailability()
     }
-    scheduleReset(after: 1.6)
+    scheduleReset(after: Timing.successResetDelay)
   }
 
   private func makeUndoAvailable(for target: AppTarget?) {
@@ -414,7 +464,7 @@ final class AppModel: ObservableObject {
   private func showTransientSuccess(_ message: String) {
     guard state.allowsConfigurationChanges else { return }
     state = .success(message)
-    scheduleReset(after: 1.6)
+    scheduleReset(after: Timing.successResetDelay)
   }
 
   private func showError(_ message: String) {
@@ -425,17 +475,31 @@ final class AppModel: ObservableObject {
   private func startRecordingTimer() {
     stopRecordingTimer()
     let startedAt = Date()
-    let timer = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in
+    let timer = Timer(timeInterval: Timing.recordingTick, repeats: true) { [weak self] _ in
       Task { @MainActor in
-        guard let self, self.state == .listening else { return }
-        self.recordingDuration = Date().timeIntervalSince(startedAt)
-        if self.recordingDuration >= RecordingLimit.maximumDuration {
-          self.stopListening()
-        }
+        self?.tickRecordingTimer(startedAt: startedAt)
       }
     }
     recordingTimer = timer
     RunLoop.main.add(timer, forMode: .common)
+  }
+
+  /// The safety stop is checked on every tick, but `recordingDuration` is only
+  /// published when the displayed second actually changes. Assigning an
+  /// `@Published` property redraws the popover and the floating indicator whether
+  /// or not the value moved, and the label has one-second resolution.
+  private func tickRecordingTimer(startedAt: Date) {
+    guard state == .listening else { return }
+    let elapsed = Date().timeIntervalSince(startedAt)
+
+    if Int(elapsed) != Int(recordingDuration) {
+      recordingDuration = elapsed
+    }
+
+    if elapsed >= RecordingLimit.maximumDuration {
+      recordingDuration = elapsed
+      stopListening()
+    }
   }
 
   private func stopRecordingTimer(resetDuration: Bool = false) {
@@ -444,6 +508,70 @@ final class AppModel: ObservableObject {
     if resetDuration {
       recordingDuration = 0
     }
+  }
+
+  // MARK: Engine info for presentation
+
+  /// True when this Mac's OS offers the high-accuracy SpeechAnalyzer engine.
+  nonisolated var analyzerEngineSupported: Bool {
+    SpeechTranscriber.analyzerEngineSupported
+  }
+
+  /// True when the high-accuracy engine can start instantly for the selected language.
+  var analyzerEngineReady: Bool {
+    transcriber.analyzerEngineReady(localeIdentifier: settings.localeIdentifier)
+  }
+
+  // MARK: Sound cues
+
+  private enum SoundCue {
+    static let start = "Tink"
+    static let stop = "Pop"
+  }
+
+  /// Short, quiet cues confirm hands-free that recording started or stopped,
+  /// matching what macOS dictation users expect. Off with one toggle.
+  private func playSoundCue(_ name: String) {
+    guard settings.soundFeedback else { return }
+    guard let sound = NSSound(named: NSSound.Name(name)) else { return }
+    sound.volume = 0.25
+    sound.play()
+  }
+
+  // MARK: Escape to cancel
+
+  /// While recording, esc discards the dictation without inserting anything.
+  private func installEscapeMonitors() {
+    guard escapeMonitors.isEmpty else { return }
+
+    if let local = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: {
+      [weak self] event in
+      guard let self, event.keyCode == 53, self.state == .listening else { return event }
+      self.cancelListening()
+      return nil
+    }) {
+      escapeMonitors.append(local)
+    }
+
+    // The global monitor only receives events when Accessibility is granted;
+    // without it, esc still works whenever HS Voice itself has focus.
+    if let global = NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: {
+      [weak self] event in
+      guard event.keyCode == 53 else { return }
+      Task { @MainActor in
+        guard let self, self.state == .listening else { return }
+        self.cancelListening()
+      }
+    }) {
+      escapeMonitors.append(global)
+    }
+  }
+
+  private func removeEscapeMonitors() {
+    for monitor in escapeMonitors {
+      NSEvent.removeMonitor(monitor)
+    }
+    escapeMonitors.removeAll()
   }
 
   private func scheduleReset(after seconds: TimeInterval) {

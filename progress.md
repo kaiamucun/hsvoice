@@ -438,3 +438,64 @@
 - Rebuilt and verified the one-file build-5 Universal installer: 659,094 bytes, SHA-256 b5c4977e1631f523f6b45fd4234d7d0df75ec7b54b299fdb0aebfed6c53e1a7a.
 - Confirmed the exact PKG opens in Apple Installer, then closed it without installing. The release directory contains only that PKG.
 - Confirmed production PPPC generation correctly rejects the current ad-hoc app until company Developer ID credentials are supplied.
+
+## Performance & Maintainability Pass: 2026-08-25
+
+- **Status:** implemented, not yet compiled (no Swift toolchain available in this session)
+- User asked for further optimization across four axes: perceived latency, recognition/formatting quality, idle resource cost, and code structure.
+
+### Latency
+- Replaced the fixed 1.1 s / 1.8 s post-`endAudio()` fallback with a quiet-window policy (`RecognitionFinalizationPolicy`). The first wait after the audio ends is `recognitionSettleWindow` (0.9 s); once the recognizer sends a post-stop revision the window restarts at `recognitionQuietWindow` (0.32 s); a 2.0 s hard deadline still bounds the worst case. This is faster than the old fixed wait in every case and, unlike the old wait, cannot truncate a recognizer that is still revising at 1.1 s.
+- `SFSpeechRecognizer` instances are now cached per language and prewarmed from `startServices`, the language subscription, and `refreshPermissions`, so the XPC handshake no longer happens while the user is already holding the key.
+- `TextInsertionService.insert` skips the activation round-trip entirely when the target application is still frontmost (the normal case for a menu-bar accessory) and uses a 20 ms settle instead of 40 ms; activation polling went from 8 x 50 ms to 10 ms steps within the same `Timing.activationTimeout` budget.
+
+### Recognition & formatting
+- `TextPostProcessor` regular expressions are precompiled once as `static let` instead of being rebuilt on every dictation, and a failed pattern now trips `preconditionFailure` instead of silently returning the text unchanged.
+- Japanese/Chinese: half-width and ideographic spaces between two CJK characters are removed, while spacing around Latin words and digits is preserved. Bracket sets were widened to include the corner and lenticular pairs.
+- Punctuation-tidying patterns were changed from `\s` to horizontal whitespace only, so they can no longer swallow a line break that a spoken layout command just inserted. A comma stranded on either side of such a break is dropped.
+- Latin locales: spaces before `.,!?;:` are removed and sentences following a full stop are capitalized, not only line starts. Decimals and domains are left intact because a boundary requires trailing whitespace.
+
+### Idle and recording cost
+- The fn-key poll drops from 60 Hz to 10 Hz once the Core Graphics tap has been observed delivering an actual fn event, and returns to 60 Hz if the tap is ever disabled. A registration generation counter prevents a stale confirmation from vouching for a freshly registered tap.
+- Microphone level updates are rate-limited to 20 Hz and dropped when the level has barely moved (`AudioLevelThrottle`), so silence costs no SwiftUI redraws at all. RMS is computed with `vDSP_measqv` instead of a scalar loop on the audio thread.
+- `recordingDuration` is only published when the displayed second changes, cutting recording-time redraws from 5/s to 1/s.
+
+### Structure
+- Added `Timing.swift`, which collects every user-perceived delay with the reasoning for its value.
+- Moved read-only presentation helpers to `AppModel+Presentation.swift`, leaving `AppModel` as lifecycle and state machine.
+- `SpeechTranscriber.complete` now resets `isStopping` alongside the other session flags.
+
+### Tests
+- Added `Tests/HSVoiceTests/LatencyAndThrottleTests.swift`: finalization policy behavior, throttle rate limiting, and budget guards that fail if a future edit reintroduces a fixed multi-second post-speech wait.
+- Extended `TextPostProcessorTests` with seven cases covering CJK spacing, Latin-in-Japanese preservation, brackets, the stranded-comma cases in both orders, sentence capitalization, and decimal/domain safety.
+- `testRemovesWhitespaceBeforeJapanesePunctuation` was updated: the expected output is now "これはテストです。次です！" rather than the previous space-preserving result. This is the intended behavior change.
+
+### Outstanding
+- `xcrun swift build` and `xcrun swift test` have NOT been run — this session had no macOS Swift toolchain. Two independent read-only reviews of the full diff found no compile errors, and all 39 test assertions were hand-traced (the 13 text-processing cases were also verified against an ICU-equivalent emulation), but the toolchain is still the authority.
+- Build/version metadata was deliberately left at build 5; bump it when repackaging.
+
+## Usability & Mac Compatibility Session: 2026-08-26
+
+- **Status:** implemented; awaiting `xcrun swift build` / `xcrun swift test` on the Mac (computer-use approval pending)
+- User asked to make the app decisively easier to use than Aqua Voice and to perfect Mac compatibility (latest macOS 26 optimization, broader legacy support, on-device verification).
+
+### Recognition engine (macOS 26 optimization)
+- New `AnalyzerDictationEngine` wraps Apple's macOS 26 SpeechAnalyzer / Speech.SpeechTranscriber with volatile results, per-locale asset install via AssetInventory, cached best audio format, AVAudioConverter feed on the audio thread, and a 3 s finalization watchdog.
+- `SpeechTranscriber` is now a facade: prefers the analyzer engine when enabled+ready, falls back to SFSpeechRecognizer (which keeps custom-vocabulary hints). New settings: `useAnalyzerEngine` (default on), `soundFeedback` (default on). Diagnostics reports the last engine used.
+
+### Live bug fixes from the user during the session
+- fn shortcut also fired on ⌘/arrow keys: macOS raises maskSecondaryFn for arrow/function-row keys, so the poll now starts a press only from `CGEventSource.keyState(kVK_Function)`; the fn *flag* is used solely to confirm a release.
+- Accessibility toggle ON but app showed not granted: permission screens now poll status every ~1 s via `.task` (previously only refreshed on app activation), and both permission UIs explain the ad-hoc-signing stale-grant fix (remove entry with −, relaunch, re-grant).
+- Multi-monitor: the floating indicator now appears on the screen of the frontmost app's focused window (AX), falling back to the mouse screen, then the menu-bar screen.
+
+### Usability
+- Overlay shows the live transcript while recording/processing, an esc-to-cancel hint, and an orange countdown for the last 10 s before the 55 s safety stop; esc cancels via local+global key monitors (removed on every completion path).
+- Start/stop sound cues (Tink/Pop at 0.25 volume) with a settings toggle; history rows gained a re-insert button; dictionary shows live n/100 word count; permission screens auto-refresh.
+
+### Compatibility
+- Deployment target lowered to macOS 13 (Package.swift, Info.plist LSMinimumSystemVersion, build triple macosx13.0): `symbolEffect` guarded behind `pulseSymbol` compat modifier, `ContentUnavailableView` replaced with `EmptyStatePlaceholder`.
+- Version bumped to 1.3.0 build 10 across Info.plist and release scripts.
+
+### Verification
+- One independent full-diff review (subagent, with Apple docs cross-check of every SpeechAnalyzer API signature) found: 1 false positive (presentation properties live in untracked AppModel+Presentation.swift), 1 real bug (escape-monitor leak on mid-listening completion — fixed), 1 risk (inline Timer publishers — replaced with `.task` loops).
+- Toolchain remains the authority; build/test still outstanding.

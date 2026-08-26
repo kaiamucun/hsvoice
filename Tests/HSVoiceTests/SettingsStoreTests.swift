@@ -20,6 +20,22 @@ final class SettingsStoreTests: XCTestCase {
     XCTAssertEqual(settings.shortcutChoice, .functionKey)
     XCTAssertTrue(settings.spokenFormattingCommands)
     XCTAssertFalse(settings.completedOnboarding)
+    XCTAssertTrue(settings.soundFeedback)
+    XCTAssertTrue(settings.useAnalyzerEngine)
+  }
+
+  func testSoundAndEnginePreferencesPersist() {
+    let suiteName = "HSVoiceTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+
+    let settings = SettingsStore(defaults: defaults)
+    settings.soundFeedback = false
+    settings.useAnalyzerEngine = false
+
+    let reloaded = SettingsStore(defaults: defaults)
+    XCTAssertFalse(reloaded.soundFeedback)
+    XCTAssertFalse(reloaded.useAnalyzerEngine)
   }
 
   func testInsertionModeDefaultsToAutomaticAndPersists() {

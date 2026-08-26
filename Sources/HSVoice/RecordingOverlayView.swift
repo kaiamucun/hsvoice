@@ -24,29 +24,37 @@ struct RecordingOverlayView: View {
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
     .padding(.horizontal, 16)
-    .padding(.bottom, 8)
+    .padding(.bottom, 10)
     .accessibilityElement(children: .combine)
     .accessibilityLabel(accessibilityStatus)
   }
 
+  /// Idle marker: a tiny pill with the waveform mark, so the dot at the bottom
+  /// of the screen is recognizably HS Voice without claiming any real space.
   private var compactStatus: some View {
-    Capsule()
-      .fill(Color.primary.opacity(0.76))
-      .frame(width: 54, height: 8)
+    Image(systemName: "waveform")
+      .font(.system(size: 10, weight: .semibold))
+      .foregroundStyle(.teal)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 4)
+      .background(.ultraThinMaterial, in: Capsule())
+      .overlay {
+        Capsule().stroke(.primary.opacity(0.1), lineWidth: 0.5)
+      }
       .shadow(color: .black.opacity(0.1), radius: 2, y: 1)
   }
 
   private var expandedStatus: some View {
-    HStack(spacing: 9) {
+    HStack(spacing: 8) {
       ZStack {
         Circle()
           .fill(statusColor.opacity(0.14))
         Image(systemName: model.state.symbolName)
-          .font(.system(size: 13, weight: .semibold))
+          .font(.system(size: 11, weight: .semibold))
           .foregroundStyle(statusColor)
-          .symbolEffect(.pulse, isActive: model.state == .listening)
+          .pulseSymbol(isActive: model.state == .listening)
       }
-      .frame(width: 26, height: 26)
+      .frame(width: 22, height: 22)
 
       if model.state == .listening {
         AudioLevelView(
@@ -54,28 +62,41 @@ struct RecordingOverlayView: View {
           fillColor: .teal,
           trackColor: .teal.opacity(0.12)
         )
-        .frame(width: 96)
+        .frame(width: 84)
 
-        Text(model.formattedRecordingDuration)
-          .font(.system(.caption2, design: .monospaced).weight(.semibold))
-          .foregroundStyle(.secondary)
-          .monospacedDigit()
+        durationLabel
       } else {
         Text(expandedMessage)
-          .font(.system(size: 12, weight: .medium, design: .rounded))
+          .font(.system(size: 11.5, weight: .medium, design: .rounded))
           .foregroundStyle(model.state.isError ? Color.orange : Color.primary)
           .lineLimit(1)
       }
     }
-    .padding(.leading, 8)
-    .padding(.trailing, 12)
+    .padding(.horizontal, 10)
     .padding(.vertical, 6)
     .background(.ultraThickMaterial, in: Capsule())
     .overlay {
-      Capsule()
-        .stroke(.primary.opacity(0.1), lineWidth: 0.5)
+      Capsule().stroke(.primary.opacity(0.1), lineWidth: 0.5)
     }
-    .shadow(color: .black.opacity(0.14), radius: 9, y: 4)
+    .shadow(color: .black.opacity(0.12), radius: 7, y: 3)
+  }
+
+  /// Elapsed time normally; an orange countdown once the 55-second safety stop
+  /// is close, so it never cuts a sentence off by surprise.
+  @ViewBuilder
+  private var durationLabel: some View {
+    let remaining = RecordingLimit.maximumDuration - model.recordingDuration
+    if remaining <= RecordingLimit.countdownWarningRemaining {
+      Text("あと\(max(0, Int(remaining.rounded(.up))))秒")
+        .font(.system(.caption2, design: .monospaced).weight(.semibold))
+        .foregroundStyle(.orange)
+        .monospacedDigit()
+    } else {
+      Text(model.formattedRecordingDuration)
+        .font(.system(.caption2, design: .monospaced).weight(.semibold))
+        .foregroundStyle(.secondary)
+        .monospacedDigit()
+    }
   }
 
   private var expandedMessage: String {

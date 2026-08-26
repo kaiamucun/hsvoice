@@ -12,7 +12,48 @@ final class TextPostProcessorTests: XCTestCase {
   func testRemovesWhitespaceBeforeJapanesePunctuation() {
     let input = "これは テストです 。 次です ！"
     let result = TextPostProcessor.process(input, localeIdentifier: "ja-JP")
-    XCTAssertEqual(result, "これは テストです。 次です！")
+    XCTAssertEqual(result, "これはテストです。次です！")
+  }
+
+  func testKeepsSpacingAroundLatinWordsAndNumbersInJapanese() {
+    let input = "今日 の 会議 は Zoom で 15 時 から です"
+    let result = TextPostProcessor.process(input, localeIdentifier: "ja-JP")
+    XCTAssertEqual(result, "今日の会議は Zoom で 15 時からです")
+  }
+
+  func testTightensJapaneseBrackets() {
+    let input = "彼は 「 これ 」 と 言った 。"
+    let result = TextPostProcessor.process(input, localeIdentifier: "ja-JP")
+    XCTAssertEqual(result, "彼は「これ」と言った。")
+  }
+
+  func testDropsCommaStrandedByASpokenLineBreak() {
+    let input = "これはテストですが、改行して次の話です"
+    let result = TextPostProcessor.process(input, localeIdentifier: "ja-JP")
+    XCTAssertEqual(result, "これはテストですが\n次の話です")
+  }
+
+  func testKeepsTheLineBreakWhenTheCommaFollowsTheSpokenCommand() {
+    let input = "これはテストですが改行して、次の話です"
+    let result = TextPostProcessor.process(input, localeIdentifier: "ja-JP")
+    XCTAssertEqual(result, "これはテストですが\n次の話です")
+  }
+
+  func testCapitalizesSentencesAfterAFullStop() {
+    let input = "hello world . next one !"
+    let result = TextPostProcessor.process(input, localeIdentifier: "en-US")
+    XCTAssertEqual(result, "Hello world. Next one!")
+  }
+
+  func testLeavesDecimalsAndDomainsIntact() {
+    XCTAssertEqual(
+      TextPostProcessor.process("the file is 3.5 inches wide. it fits", localeIdentifier: "en-US"),
+      "The file is 3.5 inches wide. It fits"
+    )
+    XCTAssertEqual(
+      TextPostProcessor.process("visit www.example.com for details", localeIdentifier: "en-US"),
+      "Visit www.example.com for details"
+    )
   }
 
   func testEmptyInputRemainsEmpty() {

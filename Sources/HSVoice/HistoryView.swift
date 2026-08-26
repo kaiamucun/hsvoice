@@ -41,15 +41,18 @@ struct HistoryView: View {
       Divider()
 
       if history.entries.isEmpty {
-        ContentUnavailableView {
-          Label("履歴はありません", systemImage: "clock")
-        } description: {
-          Text(model.settings.keepHistory ? "音声入力するとここに表示されます。" : "設定で履歴保存を有効にすると、テキストのみ記録します。")
-        }
+        EmptyStatePlaceholder(
+          title: "履歴はありません",
+          systemImage: "clock",
+          description: model.settings.keepHistory
+            ? "音声入力するとここに表示されます。" : "設定で履歴保存を有効にすると、テキストのみ記録します。"
+        )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
         List(filteredEntries) { entry in
           HistoryRow(entry: entry) {
+            model.insertText(entry.text)
+          } onCopy: {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(entry.text, forType: .string)
           } onDelete: {
@@ -66,6 +69,7 @@ struct HistoryView: View {
 
 private struct HistoryRow: View {
   let entry: HistoryEntry
+  let onInsert: () -> Void
   let onCopy: () -> Void
   let onDelete: () -> Void
 
@@ -85,6 +89,11 @@ private struct HistoryRow: View {
         Text("•")
         Text(entry.localeIdentifier)
         Spacer()
+        Button(action: onInsert) {
+          Image(systemName: "text.cursor")
+        }
+        .buttonStyle(.borderless)
+        .help("直前に使っていたアプリのカーソル位置へ入力")
         Button(action: onCopy) {
           Image(systemName: "doc.on.doc")
         }

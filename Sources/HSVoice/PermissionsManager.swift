@@ -14,10 +14,15 @@ final class PermissionsManager: ObservableObject {
   var canTranscribe: Bool { microphoneGranted && speechGranted }
   var canInsertText: Bool { accessibilityGranted }
 
+  /// Safe to call from a 1-second UI poll: only publishes actual changes, so
+  /// an open settings window does not redraw every tick.
   func refresh() {
-    microphoneGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
-    speechGranted = SFSpeechRecognizer.authorizationStatus() == .authorized
-    accessibilityGranted = AXIsProcessTrusted()
+    let microphone = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+    let speech = SFSpeechRecognizer.authorizationStatus() == .authorized
+    let accessibility = AXIsProcessTrusted()
+    if microphone != microphoneGranted { microphoneGranted = microphone }
+    if speech != speechGranted { speechGranted = speech }
+    if accessibility != accessibilityGranted { accessibilityGranted = accessibility }
   }
 
   func requestTranscriptionPermissions() async {
