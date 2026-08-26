@@ -38,11 +38,11 @@
       </Component>
     </StandardDirectory>
 
-    <!-- dotnet publish の出力を丸ごと取り込む(モデル同梱時はmodels\も含まれる) -->
-    <Files Include="$(var.PublishDir)\**" Directory="INSTALLFOLDER"/>
-
     <Feature Id="Main" Title="HS Voice" Level="1">
       <ComponentRef Id="StartMenuShortcut"/>
+      <!-- dotnet publish の出力を丸ごと取り込む(モデル同梱時はmodels\も含まれる)。
+           WiX v5ではFeature配下に置かないと WIX0267 (orphaned Component) になる -->
+      <Files Include="$(var.PublishDir)\**" Directory="INSTALLFOLDER"/>
     </Feature>
   </Package>
 </Wix>
