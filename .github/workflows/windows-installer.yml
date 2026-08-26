@@ -18,6 +18,10 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: windows
     steps:
       - uses: actions/checkout@v4
 
@@ -27,7 +31,6 @@ jobs:
 
       - name: バージョン決定
         id: ver
-        shell: pwsh
         run: |
           $v = if ('${{ github.ref_type }}' -eq 'tag') {
             '${{ github.ref_name }}' -replace '^win-v', ''
@@ -36,35 +39,60 @@ jobs:
 
       - name: テスト実行
         continue-on-error: true
-        shell: pwsh
-        working-directory: windows
-        run: dotnet test tests/HSVoice.Core.Tests
+        run: dotnet test tests/HSVoice.Core.Tests 2>&1 | Tee-Object ../log-test.txt
 
       - name: WiXインストール
-        run: dotnet tool install --global wix
+        run: |
+          dotnet tool install --global wix 2>&1 | Tee-Object ../log-wix-install.txt
+          "$env:USERPROFILE\.dotnet\tools" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
 
       - name: whisperモデルをダウンロード
-        shell: pwsh
-        working-directory: windows
-        run: ./scripts/download-model.ps1
+        run: ./scripts/download-model.ps1 2>&1 | Tee-Object ../log-model.txt
 
-      - name: MSIビルド(モデル同梱)
-        shell: pwsh
-        working-directory: windows
-        run: ./scripts/build-installer.ps1 -BundleModel -Version ${{ steps.ver.outputs.version }}
+      - name: publish (self-contained win-x64)
+        run: |
+          dotnet publish src/HSVoice.App -c Release -r win-x64 --self-contained `
+            -p:Version=${{ steps.ver.outputs.version }} `
+            -o dist/publish-x64 2>&1 | Tee-Object ../log-publish.txt
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: モデルを同梱
+        run: |
+          New-Item -ItemType Directory -Force dist/publish-x64/models | Out-Null
+          Copy-Item models/ggml-*.bin dist/publish-x64/models/
+          Get-ChildItem dist/publish-x64/models
+
+      - name: MSIビルド
+        run: |
+          $v = '${{ steps.ver.outputs.version }}'
+          New-Item -ItemType Directory -Force "release/HSVoice-$v" | Out-Null
+          wix build Packaging/Package.wxs -arch x64 `
+            -d "ProductVersion=$v" -d "PublishDir=dist\publish-x64" `
+            -o "release/HSVoice-$v/HSVoice-Installer-$v-x64.msi" 2>&1 | Tee-Object ../log-msi.txt
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-Item "release/HSVoice-$v/HSVoice-Installer-$v-x64.msi"
 
       - name: Releaseを作成しMSIをアップロード
-        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $v = '${{ steps.ver.outputs.version }}'
-          $msi = "windows/release/HSVoice-$v/HSVoice-Installer-$v-x64.msi"
+          $msi = "release/HSVoice-$v/HSVoice-Installer-$v-x64.msi"
           $size = "{0:N0} MB" -f ((Get-Item $msi).Length / 1MB)
-          if ('${{ github.ref_type }}' -ne 'tag') {
-            git tag "win-v$v" 2>$null; git push origin "win-v$v" 2>$null
-          }
           gh release create "win-v$v" `
             --title "HS Voice for Windows v$v" `
             --notes "Windows版MSIインストーラ(音声認識モデル同梱・$size)。社内配布用。" `
-            $msi --repo ${{ github.repository }}
+            $msi --repo ${{ github.repository }} 2>&1 | Tee-Object ../log-release.txt
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: 失敗ログをサマリーに表示
+        if: failure()
+        working-directory: .
+        run: |
+          "## ビルド失敗ログ(各工程の末尾)" >> $env:GITHUB_STEP_SUMMARY
+          foreach ($f in Get-ChildItem log-*.txt -ErrorAction SilentlyContinue) {
+            "### $($f.Name)" >> $env:GITHUB_STEP_SUMMARY
+            '```'           >> $env:GITHUB_STEP_SUMMARY
+            Get-Content $f -Tail 60 >> $env:GITHUB_STEP_SUMMARY
+            '```'           >> $env:GITHUB_STEP_SUMMARY
+          }
