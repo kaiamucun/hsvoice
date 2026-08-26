@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="${VERSION:-1.3.0}"
+VERSION="${VERSION:-1.5.0}"
 APP_PATH="$ROOT_DIR/dist/HS Voice.app"
 PKG_PATH="$ROOT_DIR/dist/HSVoice-$VERSION-universal.pkg"
 DMG_PATH="$ROOT_DIR/dist/HSVoice-$VERSION-universal.dmg"

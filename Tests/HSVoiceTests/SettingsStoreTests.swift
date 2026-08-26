@@ -22,6 +22,46 @@ final class SettingsStoreTests: XCTestCase {
     XCTAssertFalse(settings.completedOnboarding)
     XCTAssertTrue(settings.soundFeedback)
     XCTAssertTrue(settings.useAnalyzerEngine)
+    XCTAssertFalse(settings.aiRefinementEnabled)
+    XCTAssertEqual(settings.aiRefinementMode, .cleanup)
+    XCTAssertTrue(settings.showIdleIndicator)
+    XCTAssertEqual(settings.appLanguage, .japanese)
+  }
+
+  func testAppLanguageAndIdleIndicatorPersist() {
+    let suiteName = "HSVoiceTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+
+    let settings = SettingsStore(defaults: defaults)
+    // Restore the global UI language even on assertion failure, so test order
+    // can't leak an English UI into other tests.
+    defer { settings.appLanguage = .japanese }
+    settings.appLanguage = .english
+    settings.showIdleIndicator = false
+
+    let reloaded = SettingsStore(defaults: defaults)
+    XCTAssertEqual(reloaded.appLanguage, .english)
+    XCTAssertFalse(reloaded.showIdleIndicator)
+  }
+
+  func testAIRefinementPreferencesPersist() {
+    let suiteName = "HSVoiceTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+
+    let settings = SettingsStore(defaults: defaults)
+    settings.aiRefinementEnabled = true
+    settings.aiRefinementMode = .summarize
+
+    let reloaded = SettingsStore(defaults: defaults)
+    XCTAssertTrue(reloaded.aiRefinementEnabled)
+    XCTAssertEqual(reloaded.aiRefinementMode, .summarize)
+  }
+
+  func testAIRefinementModesHaveUniqueUserFacingLabels() {
+    let labels = RefinementMode.allCases.map(\.label)
+    XCTAssertEqual(labels.count, Set(labels).count)
   }
 
   func testSoundAndEnginePreferencesPersist() {

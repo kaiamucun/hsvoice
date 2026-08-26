@@ -202,6 +202,15 @@ final class GlobalHotKeyManager {
   }
 
   func processFunctionKeyState(_ isDown: Bool) {
+    // macOS synthesizes the fn modifier while navigation keys are held — arrows,
+    // Home/End, Page Up/Down, forward-delete, the function row — and on recent
+    // macOS that synthesis also shows up as keyCode-63 events and as HID key
+    // state for fn itself. A *press* therefore only counts while none of those
+    // fn-synthesizing keys is down. Only that specific set is checked: scanning
+    // every keycode also vetoed on phantom "stuck" states (a lost key-up from a
+    // synthetic event, a flaky HID report) and silently disabled fn entirely.
+    // Releases stay permissive so a real recording can always end.
+    if isDown, !functionKeyState.isDown, anyFnSynthesizerKeyIsDown() { return }
     guard let transition = functionKeyState.update(isDown: isDown) else { return }
     switch transition {
     case .pressed:
@@ -260,15 +269,41 @@ final class GlobalHotKeyManager {
     }
   }
 
-  /// Only the physical fn key's own HID state may *start* a recording.
-  ///
-  /// macOS also raises `maskSecondaryFn` while arrow keys, Home/End, and the
-  /// function row are held — including combos like ⌘+←. Treating that flag as
-  /// "fn is pressed" made HS Voice start recording when the user was merely
-  /// navigating with Command and arrow keys, so the flag is never used to
-  /// detect a press, only to confirm a release.
+  /// The fn key's own HID state. Note this is *not* proof the physical key is
+  /// held: navigation keys make macOS synthesize the fn layer, and that shows up
+  /// here too. `processFunctionKeyState` adds the no-other-key-down check that
+  /// turns this signal into an actual press.
   private func physicalFunctionKeyIsDown() -> Bool {
     CGEventSource.keyState(.hidSystemState, key: CGKeyCode(kVK_Function))
+  }
+
+  /// The keys whose press makes macOS synthesize the fn layer. Ordinary keys
+  /// cannot fake the fn signal, so they are deliberately NOT scanned.
+  private static let fnSynthesizerKeyCodes: [CGKeyCode] = [
+    123, 124, 125, 126,  // arrows
+    115, 119, 116, 121, 117, 114,  // Home, End, Page Up/Down, forward delete, Help
+    122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111,  // F1–F12
+    105, 107, 113, 106, 64, 79, 80,  // F13–F19
+  ]
+
+  private func anyFnSynthesizerKeyIsDown() -> Bool {
+    Self.fnSynthesizerKeyCodes.contains { CGEventSource.keyState(.hidSystemState, key: $0) }
+  }
+
+  /// One-line snapshot of every input the fn decision uses, for the
+  /// diagnostics report. A "stuck" value here explains a dead or firing fn
+  /// instantly, without guessing.
+  var fnDebugSnapshot: String {
+    let downSynthesizers = Self.fnSynthesizerKeyCodes.filter {
+      CGEventSource.keyState(.hidSystemState, key: $0)
+    }
+    return "fnKeyState=\(physicalFunctionKeyIsDown())"
+      + " fnFlag=\(CGEventSource.flagsState(.hidSystemState).contains(.maskSecondaryFn))"
+      + " trackerDown=\(functionKeyState.isDown)"
+      + " pressed=\(isPressed)"
+      + " tapActive=\(functionEventTap != nil)"
+      + " tapConfirmed=\(functionTapConfirmed)"
+      + " synthKeysDown=\(downSynthesizers)"
   }
 
   private func modifiers(for shortcut: ShortcutChoice) -> UInt32 {

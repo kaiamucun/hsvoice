@@ -18,6 +18,10 @@ final class SettingsStore: ObservableObject {
     static let completedOnboarding = "completedOnboarding"
     static let soundFeedback = "soundFeedback"
     static let useAnalyzerEngine = "useAnalyzerEngine"
+    static let appLanguage = "appLanguage"
+    static let showIdleIndicator = "showIdleIndicator"
+    static let aiRefinementEnabled = "aiRefinementEnabled"
+    static let aiRefinementMode = "aiRefinementMode"
   }
 
   private let defaults: UserDefaults
@@ -65,6 +69,29 @@ final class SettingsStore: ObservableObject {
     didSet { defaults.set(useAnalyzerEngine, forKey: Key.useAnalyzerEngine) }
   }
 
+  /// The language the app's UI is displayed in. Mirrored into `L.current`
+  /// so plain string lookups anywhere in the app follow the setting.
+  @Published var appLanguage: AppLanguage {
+    didSet {
+      defaults.set(appLanguage.rawValue, forKey: Key.appLanguage)
+      L.current = appLanguage
+    }
+  }
+
+  /// Keep the tiny idle pill visible at the bottom of the screen.
+  @Published var showIdleIndicator: Bool {
+    didSet { defaults.set(showIdleIndicator, forKey: Key.showIdleIndicator) }
+  }
+
+  /// Run the transcript through Apple Intelligence before inserting it.
+  @Published var aiRefinementEnabled: Bool {
+    didSet { defaults.set(aiRefinementEnabled, forKey: Key.aiRefinementEnabled) }
+  }
+
+  @Published var aiRefinementMode: RefinementMode {
+    didSet { defaults.set(aiRefinementMode.rawValue, forKey: Key.aiRefinementMode) }
+  }
+
   @Published private(set) var launchAtLogin: Bool
   @Published private(set) var launchAtLoginError: String?
   @Published var completedOnboarding: Bool {
@@ -88,7 +115,14 @@ final class SettingsStore: ObservableObject {
     completedOnboarding = defaults.bool(forKey: Key.completedOnboarding)
     soundFeedback = defaults.object(forKey: Key.soundFeedback) as? Bool ?? true
     useAnalyzerEngine = defaults.object(forKey: Key.useAnalyzerEngine) as? Bool ?? true
+    appLanguage =
+      AppLanguage(rawValue: defaults.string(forKey: Key.appLanguage) ?? "") ?? .japanese
+    showIdleIndicator = defaults.object(forKey: Key.showIdleIndicator) as? Bool ?? true
+    aiRefinementEnabled = defaults.object(forKey: Key.aiRefinementEnabled) as? Bool ?? false
+    aiRefinementMode =
+      RefinementMode(rawValue: defaults.string(forKey: Key.aiRefinementMode) ?? "") ?? .cleanup
     launchAtLogin = SMAppService.mainApp.status == .enabled
+    L.current = appLanguage
   }
 
   var vocabularyTerms: [String] {

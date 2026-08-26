@@ -34,17 +34,17 @@ enum VoiceState: Equatable {
   var title: String {
     switch self {
     case .idle:
-      return "待機中"
+      return L.t("待機中", "Ready", "待机中", "대기 중")
     case .requestingPermission:
-      return "権限を確認中"
+      return L.t("権限を確認中", "Checking permissions", "正在检查权限", "권한 확인 중")
     case .listening:
-      return "聞いています"
+      return L.t("聞いています", "Listening", "正在聆听", "듣고 있습니다")
     case .processing:
-      return "仕上げています"
+      return L.t("仕上げています", "Finishing up", "正在整理", "마무리 중")
     case .success:
-      return "入力しました"
+      return L.t("入力しました", "Done", "已输入", "입력했습니다")
     case .error:
-      return "確認が必要です"
+      return L.t("確認が必要です", "Needs attention", "需要确认", "확인이 필요합니다")
     }
   }
 
@@ -79,8 +79,9 @@ enum ActivationMode: String, CaseIterable, Identifiable, Codable {
 
   var label: String {
     switch self {
-    case .hold: return "押している間"
-    case .toggle: return "押すたびに開始・停止"
+    case .hold: return L.t("押している間", "While held down", "按住期间", "누르고 있는 동안")
+    case .toggle:
+      return L.t("押すたびに開始・停止", "Press to start / stop", "按一次开始，再按停止", "누를 때마다 시작·정지")
     }
   }
 }
@@ -93,15 +94,17 @@ enum InsertionMode: String, CaseIterable, Identifiable, Codable {
 
   var label: String {
     switch self {
-    case .automatic: return "カーソル位置へ自動入力"
-    case .clipboardOnly: return "クリップボードへコピーのみ"
+    case .automatic:
+      return L.t("カーソル位置へ自動入力", "Type at the cursor automatically", "自动输入到光标位置", "커서 위치에 자동 입력")
+    case .clipboardOnly:
+      return L.t("クリップボードへコピーのみ", "Copy to clipboard only", "仅复制到剪贴板", "클립보드에 복사만")
     }
   }
 
   var shortLabel: String {
     switch self {
-    case .automatic: return "自動入力"
-    case .clipboardOnly: return "コピーのみ"
+    case .automatic: return L.t("自動入力", "Auto-type", "自动输入", "자동 입력")
+    case .clipboardOnly: return L.t("コピーのみ", "Copy only", "仅复制", "복사만")
     }
   }
 
@@ -115,9 +118,17 @@ enum InsertionMode: String, CaseIterable, Identifiable, Codable {
   var detail: String {
     switch self {
     case .automatic:
-      return "録音前に使っていたアプリのカーソル位置へ直接入力します。クリップボードは使いません。アクセシビリティ権限が必要です。"
+      return L.t(
+        "録音前に使っていたアプリのカーソル位置へ直接入力します。クリップボードは使いません。アクセシビリティ権限が必要です。",
+        "Types directly at the cursor in the app you were using before recording. The clipboard is not used. Requires the Accessibility permission.",
+        "直接输入到录音前所用应用的光标位置。不使用剪贴板。需要辅助功能权限。",
+        "녹음 전에 사용하던 앱의 커서 위치에 직접 입력합니다. 클립보드는 사용하지 않습니다. 손쉬운 사용 권한이 필요합니다.")
     case .clipboardOnly:
-      return "自動入力を行わず、認識結果をクリップボードへ残します。"
+      return L.t(
+        "自動入力を行わず、認識結果をクリップボードへ残します。",
+        "Skips auto-typing and leaves the result on the clipboard.",
+        "不自动输入，将识别结果保留在剪贴板。",
+        "자동 입력하지 않고 인식 결과를 클립보드에 남깁니다.")
     }
   }
 }
@@ -199,11 +210,15 @@ enum TextInsertionOutcome: Equatable {
   var message: String {
     switch self {
     case .inserted:
-      return "カーソル位置に入力しました"
+      return L.t("カーソル位置に入力しました", "Typed at the cursor", "已输入到光标位置", "커서 위치에 입력했습니다")
     case .copiedOnly:
-      return "クリップボードにコピーしました"
+      return L.t("クリップボードにコピーしました", "Copied to the clipboard", "已复制到剪贴板", "클립보드에 복사했습니다")
     case .copiedNoAccessibility:
-      return "アクセシビリティ権限が無効のためコピーしました"
+      return L.t(
+        "アクセシビリティ権限が無効のためコピーしました",
+        "Copied instead — the Accessibility permission is not working",
+        "辅助功能权限无效，已改为复制",
+        "손쉬운 사용 권한이 없어 복사했습니다")
     }
   }
 }

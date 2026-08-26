@@ -66,7 +66,7 @@ struct MenuBarView: View {
       VStack(alignment: .leading, spacing: 2) {
         Text("HS Voice")
           .font(.system(size: 15, weight: .semibold, design: .rounded))
-        Text("社内向けスマート音声入力")
+        Text(L.t("社内向けスマート音声入力", "Smart in-house dictation", "面向公司内部的智能语音输入", "사내용 스마트 음성 입력"))
           .font(.caption)
           .foregroundStyle(.secondary)
       }
@@ -116,7 +116,9 @@ struct MenuBarView: View {
         if isRecording || model.state == .processing {
           VStack(alignment: .leading, spacing: 8) {
             AudioLevelView(level: model.audioLevel)
-            Text(model.partialTranscript.isEmpty ? "話してください…" : model.partialTranscript)
+            Text(
+              model.partialTranscript.isEmpty
+                ? L.t("話してください…", "Start speaking…", "请开始说话…", "말씀해 주세요…") : model.partialTranscript)
               .font(.system(size: 12.5))
               .lineLimit(3)
               .frame(maxWidth: .infinity, alignment: .leading)
@@ -139,7 +141,7 @@ struct MenuBarView: View {
   private var lastTranscriptCard: some View {
     VStack(alignment: .leading, spacing: 9) {
       HStack {
-        Label("直前の入力", systemImage: "clock.arrow.circlepath")
+        Label(L.t("直前の入力", "Last dictation", "上次输入", "마지막 입력"), systemImage: "clock.arrow.circlepath")
           .font(.caption.weight(.semibold))
           .foregroundStyle(.secondary)
       }
@@ -160,7 +162,7 @@ struct MenuBarView: View {
         Button {
           model.copyLastTranscript()
         } label: {
-          Label("コピー", systemImage: "doc.on.doc")
+          Label(L.t("コピー", "Copy", "复制", "복사"), systemImage: "doc.on.doc")
             .font(.caption)
         }
         .buttonStyle(.borderless)
@@ -171,11 +173,14 @@ struct MenuBarView: View {
           Button {
             model.undoLastInsertion()
           } label: {
-            Label("取り消す", systemImage: "arrow.uturn.backward")
+            Label(L.t("取り消す", "Undo", "撤销", "취소"), systemImage: "arrow.uturn.backward")
               .font(.caption)
           }
           .buttonStyle(.borderless)
-          .help("自動入力の直後8秒間、同じ入力先でのみ使えます")
+          .help(
+            L.t(
+              "自動入力の直後8秒間、同じ入力先でのみ使えます", "Available for 8 seconds after auto-typing, in the same app only",
+              "自动输入后8秒内且同一目标应用中可用", "자동 입력 후 8초 동안 같은 대상 앱에서만 사용할 수 있습니다"))
         }
       }
     }
@@ -185,10 +190,10 @@ struct MenuBarView: View {
     VStack(alignment: .leading, spacing: 8) {
       HStack(spacing: 14) {
         VStack(alignment: .leading, spacing: 3) {
-          Label("話す言語", systemImage: "character.bubble")
+          Label(L.t("話す言語", "Spoken language", "所说语言", "말하는 언어"), systemImage: "character.bubble")
             .font(.caption2.weight(.semibold))
             .foregroundStyle(.secondary)
-          Picker("話す言語", selection: $settings.localeIdentifier) {
+          Picker(L.t("話す言語", "Spoken language", "所说语言", "말하는 언어"), selection: $settings.localeIdentifier) {
             ForEach(VoiceLocale.recommended) { locale in
               Text(locale.nativeName).tag(locale.identifier)
             }
@@ -202,11 +207,12 @@ struct MenuBarView: View {
           .frame(height: 42)
 
         VStack(alignment: .leading, spacing: 3) {
-          Label("入力方法", systemImage: settings.insertionMode.symbolName)
+          Label(
+            L.t("入力方法", "Insertion", "输入方式", "입력 방식"), systemImage: settings.insertionMode.symbolName)
             .font(.caption2.weight(.semibold))
             .foregroundStyle(.secondary)
           Picker(
-            "入力方法",
+            L.t("入力方法", "Insertion", "输入方式", "입력 방식"),
             selection: Binding(
               get: { settings.insertionMode },
               set: { model.setInsertionMode($0) }
@@ -223,7 +229,11 @@ struct MenuBarView: View {
       }
 
       if settings.insertionMode == .automatic && !model.permissions.accessibilityGranted {
-        Label("権限がないため結果はコピーされます", systemImage: "exclamationmark.circle")
+        Label(
+          L.t(
+            "権限がないため結果はコピーされます", "No permission — results will be copied instead",
+            "因缺少权限，结果将改为复制", "권한이 없어 결과는 복사됩니다"),
+          systemImage: "exclamationmark.circle")
           .font(.caption2)
           .foregroundStyle(.orange)
       }
@@ -241,14 +251,14 @@ struct MenuBarView: View {
       Button {
         model.showHistory()
       } label: {
-        Label("履歴", systemImage: "clock")
+        Label(L.t("履歴", "History", "历史", "기록"), systemImage: "clock")
       }
       .buttonStyle(MenuFooterButtonStyle())
 
       Button {
         openWindow(id: "settings")
       } label: {
-        Label("設定", systemImage: "gearshape")
+        Label(L.t("設定", "Settings", "设置", "설정"), systemImage: "gearshape")
       }
       .buttonStyle(MenuFooterButtonStyle())
 
@@ -259,7 +269,7 @@ struct MenuBarView: View {
           openWindow(id: "settings")
         }
       } label: {
-        Label("権限", systemImage: "checkmark.shield")
+        Label(L.t("権限", "Permissions", "权限", "권한"), systemImage: "checkmark.shield")
       }
       .buttonStyle(MenuFooterButtonStyle())
 
@@ -272,7 +282,7 @@ struct MenuBarView: View {
           .frame(width: 26, height: 24)
       }
       .buttonStyle(.plain)
-      .help("HS Voiceを終了")
+      .help(L.t("HS Voiceを終了", "Quit HS Voice", "退出HS Voice", "HS Voice 종료"))
     }
     .font(.caption)
   }
@@ -288,15 +298,19 @@ struct MenuBarView: View {
 
   private var primaryActionTitle: String {
     switch model.state {
-    case .idle, .success, .error: return "クリックして話す"
-    case .requestingPermission: return "権限を確認中"
-    case .listening: return "クリックして終了"
-    case .processing: return "テキストを準備中"
+    case .idle, .success, .error:
+      return L.t("クリックして話す", "Click to speak", "点击开始说话", "클릭해서 말하기")
+    case .requestingPermission:
+      return L.t("権限を確認中", "Checking permissions", "正在检查权限", "권한 확인 중")
+    case .listening: return L.t("クリックして終了", "Click to stop", "点击结束", "클릭해서 종료")
+    case .processing: return L.t("テキストを準備中", "Preparing text", "正在准备文本", "텍스트 준비 중")
     }
   }
 
   private var repeatActionTitle: String {
-    settings.insertionMode == .automatic ? "もう一度入力" : "もう一度コピー"
+    settings.insertionMode == .automatic
+      ? L.t("もう一度入力", "Insert again", "再次输入", "다시 입력")
+      : L.t("もう一度コピー", "Copy again", "再次复制", "다시 복사")
   }
 
   private var statusColor: Color {

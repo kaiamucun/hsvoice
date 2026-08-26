@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="${VERSION:-1.3.0}"
-BUILD_NUMBER="${BUILD_NUMBER:-10}"
+VERSION="${VERSION:-1.5.0}"
+BUILD_NUMBER="${BUILD_NUMBER:-17}"
 BUNDLE_IDENTIFIER="${BUNDLE_IDENTIFIER:-com.hsvoice.desktop}"
 APP_SIGNING_IDENTITY="${APP_SIGNING_IDENTITY:--}"
 INSTALLER_SIGNING_IDENTITY="${INSTALLER_SIGNING_IDENTITY:-}"
@@ -72,6 +72,17 @@ cp "$ROOT_DIR/Packaging/Info.plist" "$APP_PATH/Contents/Info.plist"
 
 "$ROOT_DIR/scripts/generate-icon.sh" "$APP_PATH/Contents/Resources/AppIcon.icns" >/dev/null
 
+# Source files edited through a device bridge (e.g. Claude Cowork) can carry
+# owner-only modes (600), ACLs, and stray extended attributes. pkgbuild records
+# modes verbatim and the payload installs root-owned, so an unreadable
+# Info.plist bricks the installed app ("executable is missing", version "--").
+# Normalize the whole bundle before signing so the signature covers the final
+# state and every payload file is world-readable.
+chmod -RN "$APP_PATH" 2>/dev/null || true
+xattr -cr "$APP_PATH" 2>/dev/null || true
+find "$APP_PATH" -name '._*' -delete
+chmod -R u+rwX,go+rX "$APP_PATH"
+
 if [[ "$APP_SIGNING_IDENTITY" == "-" ]]; then
     echo "Applying an ad-hoc signature for local testing..."
     codesign --force --deep --sign - "$APP_PATH"
@@ -97,6 +108,16 @@ fi
 
 mkdir -p "$PACKAGE_ROOT"
 cp -R "$APP_PATH" "$PACKAGE_ROOT/HS Voice.app"
+
+# Belt and braces: verify the payload carries no owner-only entries before it
+# is sealed into the component package.
+chmod -R u+rwX,go+rX "$PACKAGE_ROOT"
+BAD_MODES="$(find "$PACKAGE_ROOT" \( -type f ! -perm -044 \) -o \( -type d ! -perm -055 \) | head -5)"
+if [[ -n "$BAD_MODES" ]]; then
+    echo "Refusing to package files that are not world-readable:" >&2
+    echo "$BAD_MODES" >&2
+    exit 1
+fi
 
 PKG_ARGUMENTS=(
     --root "$PACKAGE_ROOT"

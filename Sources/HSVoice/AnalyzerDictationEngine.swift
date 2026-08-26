@@ -24,9 +24,17 @@ final class AnalyzerDictationEngine {
     var errorDescription: String? {
       switch self {
       case .localeNotReady:
-        return "選択した言語の高精度認識モデルをまだ利用できません。"
+        return L.t(
+          "選択した言語の高精度認識モデルをまだ利用できません。",
+          "The high-accuracy model for the selected language isn't available yet.",
+          "所选语言的高精度识别模型尚不可用。",
+          "선택한 언어의 고정밀 인식 모델을 아직 사용할 수 없습니다.")
       case .invalidAudioInput:
-        return "マイクの入力形式を取得できませんでした。"
+        return L.t(
+          "マイクの入力形式を取得できませんでした。",
+          "Couldn't read the microphone's input format.",
+          "无法获取麦克风的输入格式。",
+          "마이크 입력 형식을 가져오지 못했습니다.")
       }
     }
   }

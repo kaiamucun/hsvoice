@@ -10,9 +10,17 @@ enum SpeechTranscriberError: LocalizedError {
   var errorDescription: String? {
     switch self {
     case .recognizerUnavailable:
-      return "選択した言語の音声認識を現在利用できません。"
+      return L.t(
+        "選択した言語の音声認識を現在利用できません。",
+        "Speech recognition isn't currently available for the selected language.",
+        "所选语言的语音识别目前不可用。",
+        "선택한 언어의 음성 인식을 현재 사용할 수 없습니다.")
     case .invalidAudioInput:
-      return "マイクの入力形式を取得できませんでした。"
+      return L.t(
+        "マイクの入力形式を取得できませんでした。",
+        "Couldn't read the microphone's input format.",
+        "无法获取麦克风的输入格式。",
+        "마이크 입력 형식을 가져오지 못했습니다.")
     }
   }
 }
@@ -114,6 +122,28 @@ final class AudioLevelGate: @unchecked Sendable {
   }
 }
 
+/// Thread-safe holder for the recognition request the audio tap feeds.
+///
+/// Restarting the recognition task mid-recording (see the early-final handling)
+/// swaps in a fresh request while the tap keeps running on the audio thread, so
+/// the handoff must be lock-protected rather than a reference captured once.
+final class RecognitionRequestBox: @unchecked Sendable {
+  private let lock = NSLock()
+  private var request: SFSpeechAudioBufferRecognitionRequest?
+
+  func set(_ newRequest: SFSpeechAudioBufferRecognitionRequest?) {
+    lock.lock()
+    request = newRequest
+    lock.unlock()
+  }
+
+  func append(_ buffer: AVAudioPCMBuffer) {
+    lock.lock()
+    request?.append(buffer)
+    lock.unlock()
+  }
+}
+
 @MainActor
 final class SpeechTranscriber {
   private let audioEngine = AVAudioEngine()
@@ -122,6 +152,17 @@ final class SpeechTranscriber {
   private var finalizationWorkItem: DispatchWorkItem?
   private var deadlineWorkItem: DispatchWorkItem?
   private var latestText = ""
+
+  /// Segments the recognizer finalized on its own mid-recording (it does this
+  /// after a breath-length pause). They are joined with `latestText` for every
+  /// partial update and for the final transcript, so a pause never loses text.
+  private var bankedText = ""
+  private var activeLocaleIdentifier = ""
+  private var activeRecognizer: SFSpeechRecognizer?
+  private var requestVocabulary: [String] = []
+  private var requestOnDevice = false
+  private var recognitionGeneration = 0
+  private let requestBox = RecognitionRequestBox()
   private var isStopping = false
   private var didComplete = false
   private var hasAudioTap = false
@@ -239,13 +280,7 @@ final class SpeechTranscriber {
       throw SpeechTranscriberError.recognizerUnavailable
     }
 
-    let request = SFSpeechAudioBufferRecognitionRequest()
-    request.shouldReportPartialResults = true
-    request.taskHint = .dictation
-    request.addsPunctuation = true
-    request.contextualStrings = Array(vocabulary.prefix(100))
     supportsOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
-    request.requiresOnDeviceRecognition = preferOnDevice && supportsOnDeviceRecognition
 
     let inputNode = audioEngine.inputNode
     let format = inputNode.outputFormat(forBus: 0)
@@ -256,18 +291,23 @@ final class SpeechTranscriber {
     self.onPartial = onPartial
     self.onLevel = onLevel
     self.onCompletion = onCompletion
-    recognitionRequest = request
+    activeRecognizer = recognizer
+    activeLocaleIdentifier = localeIdentifier
+    requestVocabulary = vocabulary
+    requestOnDevice = preferOnDevice && supportsOnDeviceRecognition
     latestText = ""
+    bankedText = ""
     isStopping = false
     didComplete = false
     stoppedAt = nil
     sawResultSinceStop = false
     let sessionID = sessionTracker.begin()
     let levelGate = AudioLevelGate()
+    let box = requestBox
 
     inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) {
-      [weak self, weak request] buffer, _ in
-      request?.append(buffer)
+      [weak self] buffer, _ in
+      box.append(buffer)
       guard let self else { return }
       let level = AudioLevelMeter.normalizedLevel(from: buffer)
       guard levelGate.allows(level) else { return }
@@ -281,34 +321,94 @@ final class SpeechTranscriber {
     audioEngine.prepare()
     try audioEngine.start()
 
+    startLegacyRecognitionTask(sessionID: sessionID)
+  }
+
+  /// Full transcript of the session so far: everything the recognizer already
+  /// finalized plus the segment it is still revising.
+  private var combinedTranscript: String {
+    Self.joinSegments(bankedText, latestText, localeIdentifier: activeLocaleIdentifier)
+  }
+
+  /// Joins two finalized segments. Space-delimited languages get a space at the
+  /// seam; Japanese and Chinese are joined directly.
+  nonisolated static func joinSegments(
+    _ first: String, _ second: String, localeIdentifier: String
+  ) -> String {
+    if first.isEmpty { return second }
+    if second.isEmpty { return first }
+    let noSpace = localeIdentifier.hasPrefix("ja") || localeIdentifier.hasPrefix("zh")
+    return first + (noSpace ? "" : " ") + second
+  }
+
+  private func startLegacyRecognitionTask(sessionID: UUID) {
+    guard let recognizer = activeRecognizer else { return }
+
+    let request = SFSpeechAudioBufferRecognitionRequest()
+    request.shouldReportPartialResults = true
+    request.taskHint = .dictation
+    request.addsPunctuation = true
+    request.contextualStrings = Array(requestVocabulary.prefix(100))
+    request.requiresOnDeviceRecognition = requestOnDevice
+
+    recognitionRequest = request
+    requestBox.set(request)
+    recognitionGeneration &+= 1
+    let generation = recognitionGeneration
+
     recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
       Task { @MainActor in
-        guard let self, self.sessionTracker.contains(sessionID), !self.didComplete else { return }
-
-        if let result {
-          self.latestText = result.bestTranscription.formattedString
-          self.onPartial?(self.latestText)
-          if result.isFinal {
-            self.complete(.success(self.latestText), sessionID: sessionID)
-            return
-          }
-          // The recognizer is still revising the transcript after the audio
-          // ended, so restart the quiet window from this result.
-          if self.isStopping {
-            self.sawResultSinceStop = true
-            self.scheduleQuietFinalization(sessionID: sessionID)
-          }
-        }
-
-        if let error {
-          if self.isStopping, !self.latestText.isEmpty {
-            self.complete(.success(self.latestText), sessionID: sessionID)
-          } else {
-            self.complete(.failure(error), sessionID: sessionID)
-          }
-        }
+        guard let self, self.sessionTracker.contains(sessionID),
+          generation == self.recognitionGeneration, !self.didComplete
+        else { return }
+        self.handleLegacyResult(result, error: error, sessionID: sessionID)
       }
     }
+  }
+
+  private func handleLegacyResult(
+    _ result: SFSpeechRecognitionResult?, error: Error?, sessionID: UUID
+  ) {
+    if let result {
+      latestText = result.bestTranscription.formattedString
+      onPartial?(combinedTranscript)
+      if result.isFinal {
+        if isStopping {
+          complete(.success(combinedTranscript), sessionID: sessionID)
+        } else {
+          // The recognizer finalizes an utterance on its own after a
+          // breath-length pause. That is a segment boundary, not the end of the
+          // dictation: bank the segment and immediately start a fresh task on
+          // the live audio stream so nothing after the pause is lost.
+          bankCurrentSegment()
+          startLegacyRecognitionTask(sessionID: sessionID)
+        }
+        return
+      }
+      // The recognizer is still revising the transcript after the audio
+      // ended, so restart the quiet window from this result.
+      if isStopping {
+        sawResultSinceStop = true
+        scheduleQuietFinalization(sessionID: sessionID)
+      }
+    }
+
+    if let error {
+      // The generation guard already filtered callbacks from replaced tasks,
+      // so this error belongs to the live task. Deliver whatever text exists
+      // rather than discarding a partially successful dictation.
+      if !combinedTranscript.isEmpty {
+        complete(.success(combinedTranscript), sessionID: sessionID)
+      } else {
+        complete(.failure(error), sessionID: sessionID)
+      }
+    }
+  }
+
+  private func bankCurrentSegment() {
+    guard !latestText.isEmpty else { return }
+    bankedText = Self.joinSegments(bankedText, latestText, localeIdentifier: activeLocaleIdentifier)
+    latestText = ""
   }
 
   func finish() {
@@ -328,7 +428,7 @@ final class SpeechTranscriber {
 
     let deadlineItem = DispatchWorkItem { [weak self] in
       guard let self, self.sessionTracker.contains(sessionID), !self.didComplete else { return }
-      self.complete(.success(self.latestText), sessionID: sessionID)
+      self.complete(.success(self.combinedTranscript), sessionID: sessionID)
     }
     deadlineWorkItem = deadlineItem
     DispatchQueue.main.asyncAfter(
@@ -345,14 +445,14 @@ final class SpeechTranscriber {
 
     let elapsed = stoppedAt.map { Date().timeIntervalSince($0) } ?? 0
     let delay = finalizationPolicy.delayUntilFinalization(
-      hasTranscript: !latestText.isEmpty,
+      hasTranscript: !combinedTranscript.isEmpty,
       sawResultSinceStop: sawResultSinceStop,
       elapsedSinceStop: elapsed
     )
 
     let workItem = DispatchWorkItem { [weak self] in
       guard let self, self.sessionTracker.contains(sessionID), !self.didComplete else { return }
-      self.complete(.success(self.latestText), sessionID: sessionID)
+      self.complete(.success(self.combinedTranscript), sessionID: sessionID)
     }
     finalizationWorkItem = workItem
     DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
@@ -369,10 +469,13 @@ final class SpeechTranscriber {
     recognitionTask?.cancel()
     recognitionTask = nil
     recognitionRequest = nil
+    requestBox.set(nil)
+    activeRecognizer = nil
     onPartial = nil
     onLevel = nil
     onCompletion = nil
     latestText = ""
+    bankedText = ""
     isStopping = false
     didComplete = false
     stoppedAt = nil
@@ -406,6 +509,8 @@ final class SpeechTranscriber {
     let completion = onCompletion
     recognitionTask = nil
     recognitionRequest = nil
+    requestBox.set(nil)
+    activeRecognizer = nil
     onPartial = nil
     onLevel = nil
     onCompletion = nil

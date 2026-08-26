@@ -8,7 +8,8 @@ enum DiagnosticsReport {
     permissions: PermissionsManager,
     shortcutAvailable: Bool,
     lastError: String?,
-    lastEngine: String? = nil
+    lastEngine: String? = nil,
+    fnDebug: String? = nil
   ) -> String {
     let bundle = Bundle.main
     let version =
@@ -43,9 +44,12 @@ enum DiagnosticsReport {
       Microphone permission: \(yesNo(permissions.microphoneGranted))
       Speech permission: \(yesNo(permissions.speechGranted))
       Accessibility permission: \(yesNo(permissions.accessibilityGranted))
+      AI refinement: \(yesNo(settings.aiRefinementEnabled)) (mode: \(settings.aiRefinementMode.rawValue), availability: \(String(describing: RefinementService.availability())))
+      UI language: \(settings.appLanguage.rawValue)
       Local history: \(yesNo(settings.keepHistory))
       Launch at login: \(yesNo(settings.launchAtLogin))
       Last error: \(errorLine)
+      Fn debug: \(fnDebug ?? "n/a")
 
       Privacy: This report never includes dictated text, audio, custom vocabulary, user name, or device name.
       """

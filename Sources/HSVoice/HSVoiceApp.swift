@@ -49,7 +49,7 @@ private struct HSVoiceCommands: Commands {
 
   var body: some Commands {
     CommandGroup(replacing: .appSettings) {
-      Button("設定…") {
+      Button(L.t("設定…", "Settings…", "设置…", "설정…")) {
         openWindow(id: "settings")
       }
       .keyboardShortcut(",", modifiers: .command)

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RecordingOverlayView: View {
   @ObservedObject var model: AppModel
+  @ObservedObject private var settings = SettingsStore.shared
 
   var body: some View {
     ZStack(alignment: .bottom) {
@@ -10,8 +11,12 @@ struct RecordingOverlayView: View {
       Group {
         switch model.state.overlayPresentation {
         case .compact:
-          compactStatus
-            .transition(.scale(scale: 0.92, anchor: .bottom).combined(with: .opacity))
+          // The idle pill can be turned off in settings; recording and result
+          // states always show, so feedback during dictation is never lost.
+          if settings.showIdleIndicator {
+            compactStatus
+              .transition(.scale(scale: 0.92, anchor: .bottom).combined(with: .opacity))
+          }
         case .expanded:
           expandedStatus
             .transition(.scale(scale: 0.96, anchor: .bottom).combined(with: .opacity))
@@ -87,7 +92,10 @@ struct RecordingOverlayView: View {
   private var durationLabel: some View {
     let remaining = RecordingLimit.maximumDuration - model.recordingDuration
     if remaining <= RecordingLimit.countdownWarningRemaining {
-      Text("あと\(max(0, Int(remaining.rounded(.up))))秒")
+      Text(
+        L.t(
+          "あと\(max(0, Int(remaining.rounded(.up))))秒", "\(max(0, Int(remaining.rounded(.up))))s left",
+          "剩余\(max(0, Int(remaining.rounded(.up))))秒", "남은 시간 \(max(0, Int(remaining.rounded(.up))))초"))
         .font(.system(.caption2, design: .monospaced).weight(.semibold))
         .foregroundStyle(.orange)
         .monospacedDigit()
@@ -102,9 +110,9 @@ struct RecordingOverlayView: View {
   private var expandedMessage: String {
     switch model.state {
     case .requestingPermission:
-      return "権限を確認中"
+      return L.t("権限を確認中", "Checking permissions", "正在检查权限", "권한 확인 중")
     case .processing:
-      return "処理中"
+      return L.t("処理中", "Processing", "处理中", "처리 중")
     case .success, .error:
       return model.stateDetail
     case .idle, .listening:
@@ -127,8 +135,12 @@ struct RecordingOverlayView: View {
 
   private var accessibilityStatus: String {
     if model.state == .idle {
-      return "HS Voice 起動中。\(model.shortcutDisplayText)で音声入力できます"
+      return L.t(
+        "HS Voice 起動中。\(model.shortcutDisplayText)で音声入力できます",
+        "HS Voice is running. Dictate with \(model.shortcutDisplayText)",
+        "HS Voice运行中。按\(model.shortcutDisplayText)即可语音输入",
+        "HS Voice 실행 중. \(model.shortcutDisplayText)로 음성 입력할 수 있습니다")
     }
-    return "HS Voice、\(model.state.title)。\(model.stateDetail)"
+    return "HS Voice, \(model.state.title). \(model.stateDetail)"
   }
 }

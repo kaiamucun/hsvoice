@@ -31,6 +31,7 @@ final class AppModel: ObservableObject {
   private var lastInsertionTarget: AppTarget?
   private var hasStartedServices = false
   private var recordingContext: RecordingContext?
+  private var insertionTask: Task<Void, Never>?
   private var cancellables: Set<AnyCancellable> = []
   private var escapeMonitors: [Any] = []
 
@@ -38,6 +39,8 @@ final class AppModel: ObservableObject {
     let localeIdentifier: String
     let spokenFormattingCommands: Bool
     let keepHistory: Bool
+    let aiRefinementEnabled: Bool
+    let aiRefinementMode: RefinementMode
   }
 
   func startServices() {
@@ -124,6 +127,11 @@ final class AppModel: ObservableObject {
     guard state == .listening || state == .processing else { return }
     removeEscapeMonitors()
     transcriber.cancel()
+    // Refinement stretches .processing to seconds; a cancel must also stop the
+    // pending refine+insert task or the discarded dictation would still be
+    // typed into whatever has focus later.
+    insertionTask?.cancel()
+    insertionTask = nil
     stopRecordingTimer(resetDuration: true)
     partialTranscript = ""
     audioLevel = 0
@@ -137,7 +145,7 @@ final class AppModel: ObservableObject {
     guard !lastTranscript.isEmpty else { return }
     NSPasteboard.general.clearContents()
     NSPasteboard.general.setString(lastTranscript, forType: .string)
-    showTransientSuccess("クリップボードにコピーしました")
+    showTransientSuccess(L.t("クリップボードにコピーしました", "Copied to the clipboard", "已复制到剪贴板", "클립보드에 복사했습니다"))
   }
 
   func repeatLastTranscript() {
@@ -167,9 +175,9 @@ final class AppModel: ObservableObject {
     expireUndoAvailability()
 
     if didUndo {
-      showTransientSuccess("直前の入力を取り消しました")
+      showTransientSuccess(L.t("直前の入力を取り消しました", "Undid the last insertion", "已撤销上次输入", "마지막 입력을 취소했습니다"))
     } else {
-      showError("入力先が変わったため取り消せませんでした")
+      showError(L.t("入力先が変わったため取り消せませんでした", "Couldn't undo — the target app changed", "输入目标已变化，无法撤销", "입력 대상이 바뀌어 취소할 수 없습니다"))
       scheduleReset(after: Timing.recoverableErrorResetDelay)
     }
   }
@@ -181,11 +189,12 @@ final class AppModel: ObservableObject {
       permissions: permissions,
       shortcutAvailable: shortcutAvailable,
       lastError: lastErrorMessage,
-      lastEngine: transcriber.lastUsedEngine?.rawValue
+      lastEngine: transcriber.lastUsedEngine?.rawValue,
+      fnDebug: hotKeyManager.fnDebugSnapshot
     )
     NSPasteboard.general.clearContents()
     NSPasteboard.general.setString(report, forType: .string)
-    showTransientSuccess("診断情報をコピーしました")
+    showTransientSuccess(L.t("診断情報をコピーしました", "Diagnostics copied", "已复制诊断信息", "진단 정보를 복사했습니다"))
   }
 
   func showOnboarding() {
@@ -209,7 +218,7 @@ final class AppModel: ObservableObject {
       }
       _ = completeOnboardingIfReady()
     } else {
-      showError("マイクと音声認識の許可が必要です")
+      showError(L.t("マイクと音声認識の許可が必要です", "Microphone and Speech Recognition permissions are required", "需要麦克风和语音识别权限", "마이크와 음성 인식 권한이 필요합니다"))
     }
   }
 
@@ -301,8 +310,15 @@ final class AppModel: ObservableObject {
     recordingContext = RecordingContext(
       localeIdentifier: settings.localeIdentifier,
       spokenFormattingCommands: settings.spokenFormattingCommands,
-      keepHistory: settings.keepHistory
+      keepHistory: settings.keepHistory,
+      aiRefinementEnabled: settings.aiRefinementEnabled,
+      aiRefinementMode: settings.aiRefinementMode
     )
+    if settings.aiRefinementEnabled {
+      // Load the model while the user is still speaking, so the refinement
+      // after the recording doesn't pay the cold start.
+      RefinementService.prewarm()
+    }
     state = .listening
     OverlayWindowController.shared.show()
 
@@ -366,26 +382,46 @@ final class AppModel: ObservableObject {
         spokenCommandsEnabled: recordingContext.spokenFormattingCommands
       )
       guard !text.isEmpty else {
-        showError("音声を認識できませんでした")
+        showError(L.t("音声を認識できませんでした", "Couldn't recognize any speech", "未能识别语音", "음성을 인식하지 못했습니다"))
         scheduleReset(after: Timing.recoverableErrorResetDelay)
         return
       }
 
       partialTranscript = text
       lastTranscript = text
-      if recordingContext.keepHistory {
-        history.add(
-          HistoryEntry(
-            text: text,
-            applicationName: targetApplicationName,
-            localeIdentifier: recordingContext.localeIdentifier
-          )
-        )
-      }
 
-      Task {
-        let outcome = await insertionService.insert(text, into: target)
-        finishInsertion(outcome, target: target)
+      // Snapshotted now: a cancel during refinement nils the properties, and
+      // this dictation must not pick up a later recording's target.
+      let insertionTarget = target
+      let applicationName = targetApplicationName
+      insertionTask = Task {
+        var finalText = text
+        if recordingContext.aiRefinementEnabled,
+          let refined = await RefinementService.refine(
+            text, mode: recordingContext.aiRefinementMode)
+        {
+          finalText = refined
+        }
+        // Cancelled while the model was working — the user discarded this
+        // dictation, so nothing may be inserted or recorded.
+        guard !Task.isCancelled else { return }
+        partialTranscript = finalText
+        lastTranscript = finalText
+        if recordingContext.keepHistory {
+          history.add(
+            HistoryEntry(
+              text: finalText,
+              applicationName: applicationName,
+              localeIdentifier: recordingContext.localeIdentifier
+            )
+          )
+        }
+        let outcome = await insertionService.insert(finalText, into: insertionTarget)
+        // A cancel that raced the insert itself must not flip the reset UI
+        // back into a success state.
+        guard !Task.isCancelled else { return }
+        insertionTask = nil
+        finishInsertion(outcome, target: insertionTarget)
       }
 
     case .failure(let error):
@@ -397,9 +433,10 @@ final class AppModel: ObservableObject {
   private func readableRecognitionError(_ error: Error) -> String {
     let message = error.localizedDescription
     if message.lowercased().contains("network") {
-      return "音声認識サービスに接続できません"
+      return L.t("音声認識サービスに接続できません", "Can't reach the speech recognition service", "无法连接语音识别服务", "음성 인식 서비스에 연결할 수 없습니다")
     }
-    return message.isEmpty ? "音声認識を完了できませんでした" : message
+    return message.isEmpty
+      ? L.t("音声認識を完了できませんでした", "Speech recognition didn't finish", "语音识别未能完成", "음성 인식을 완료하지 못했습니다") : message
   }
 
   private func finishInsertion(_ outcome: TextInsertionOutcome, target: AppTarget?) {
@@ -515,6 +552,11 @@ final class AppModel: ObservableObject {
   /// True when this Mac's OS offers the high-accuracy SpeechAnalyzer engine.
   nonisolated var analyzerEngineSupported: Bool {
     SpeechTranscriber.analyzerEngineSupported
+  }
+
+  /// True when this Mac's OS ships the Apple Intelligence refinement framework.
+  nonisolated var refinementSupported: Bool {
+    RefinementService.isSupported
   }
 
   /// True when the high-accuracy engine can start instantly for the selected language.
