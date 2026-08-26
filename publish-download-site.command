@@ -11,8 +11,10 @@ rm -f tmp/publish-site.SUCCESS tmp/publish-site.FAILED
   if [ -f .git/index.lock ] && ! pgrep -x git >/dev/null; then
     rm -f .git/index.lock && echo "stale index.lock removed"
   fi
-  ./scripts/update-download-site.sh &&
+  bash scripts/update-download-site.sh &&
   git add docs/index.html docs/icon.svg docs/.nojekyll docs/downloads/HSVoice-Installer.pkg scripts/update-download-site.sh publish-download-site.command &&
+  { [ -f windows-release.conf ] && git add windows-release.conf || true; } &&
+  { [ -f docs/downloads/HSVoice-Installer.msi ] && git add docs/downloads/HSVoice-Installer.msi || true; } &&
   { git diff --cached --quiet && echo "変更なし(コミット不要)" || git commit -m "Add/update internal download site (docs/)"; } &&
   git push origin main
   if [ $? -eq 0 ]; then

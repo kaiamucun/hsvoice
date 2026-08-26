@@ -1,11 +1,18 @@
 #!/bin/bash
 # 社内配布用ダウンロードサイト(docs/)を最新pkgで更新する (Claude作成)
 # 使い方: 新しいバージョンをビルドした後に ./scripts/update-download-site.sh を実行し、
-#         git add docs/ && commit && push するだけ。
+#         publish-download-site.command で push するだけ。
+#
+# Windows版: MSIは大きい(〜700MB想定)ためリポジトリに置かず GitHub Releases にアップし、
+#   リポジトリ直下に windows-release.conf を作るとページにWindows用ボタンが出る。例:
+#     WIN_URL=https://github.com/kaiamucun/hsvoice/releases/download/win-v1.0.0/HSVoice-Setup-1.0.0.msi
+#     WIN_VERSION=1.0.0
+#     WIN_SIZE=700 MB
+#     WIN_DATE=2026-09-30
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# release/ から最新バージョンを検出
+# --- macOS: release/ から最新バージョンを検出 ---
 LATEST_DIR=$(ls -d release/HSVoice-*/ 2>/dev/null | sort -V | tail -1)
 [ -n "$LATEST_DIR" ] || { echo "release/ に HSVoice-* が見つかりません"; exit 1; }
 VERSION=$(basename "$LATEST_DIR" | sed 's/^HSVoice-//')
@@ -17,6 +24,38 @@ cp "$PKG" docs/downloads/HSVoice-Installer.pkg   # 常に同じファイル名=�
 touch docs/.nojekyll
 SIZE=$(du -h docs/downloads/HSVoice-Installer.pkg | cut -f1 | sed 's/K/ KB/;s/M/ MB/')
 DATE=$(date +%Y-%m-%d)
+
+# --- Windows ---
+# 方法A(推奨): Windows PCでビルドしたMSIを release-windows/ に置く
+#   例: release-windows/HSVoice-Installer-1.0.0-x64.msi
+#   → docs/downloads/HSVoice-Installer.msi として配置(95MB以下のみ。超える場合は方法B)
+# 方法B: 大きいMSI(モデル同梱版など)は GitHub Releases にアップし windows-release.conf に記載
+WIN_URL=""; WIN_VERSION=""; WIN_SIZE=""; WIN_DATE=""
+[ -f windows-release.conf ] && . ./windows-release.conf
+
+ WIN_MSI=$(ls release-windows/HSVoice-Installer-*.msi 2>/dev/null | sort -V | tail -1 || true)
+if [ -z "$WIN_URL" ] && [ -n "$WIN_MSI" ]; then
+  MSI_BYTES=$(wc -c < "$WIN_MSI" | tr -d ' ')
+  if [ "$MSI_BYTES" -gt 99614720 ]; then
+    echo "警告: $WIN_MSI は95MBを超えるためGitHubに置けません。GitHub Releasesにアップして windows-release.conf を使ってください(スクリプト冒頭のコメント参照)。Windows版はスキップします。"
+  else
+    cp "$WIN_MSI" docs/downloads/HSVoice-Installer.msi
+    WIN_URL="downloads/HSVoice-Installer.msi"
+    WIN_VERSION=$(basename "$WIN_MSI" | sed 's/^HSVoice-Installer-//; s/\(-x64\|-arm64\)*\.msi$//')
+    WIN_SIZE=$(du -h docs/downloads/HSVoice-Installer.msi | cut -f1 | sed 's/K/ KB/;s/M/ MB/')
+    WIN_DATE=$(date +%Y-%m-%d)
+  fi
+fi
+
+if [ -n "$WIN_URL" ]; then
+  WIN_FILE=$(basename "$WIN_URL")
+  WIN_BLOCK="<a class=\"btn win\" href=\"$WIN_URL\">Windows版をダウンロード(.${WIN_FILE##*.})</a>
+  <p class=\"meta\">v${WIN_VERSION:-?}${WIN_SIZE:+ / $WIN_SIZE}${WIN_DATE:+ / $WIN_DATE 更新}</p>"
+  WIN_STEPS="<br>※ Windows: ダブルクリックでインストール。「WindowsによってPCが保護されました」と出た場合は「詳細情報」→「実行」<br>※ Windows: 初回起動時に音声認識モデル(約574MB)を自動ダウンロードします"
+else
+  WIN_BLOCK="<p class=\"pending\">Windows版は準備中です(完成したらここに追加されます)</p>"
+  WIN_STEPS=""
+fi
 
 cat > docs/index.html <<HTML_EOF
 <!DOCTYPE html>
@@ -41,15 +80,15 @@ cat > docs/index.html <<HTML_EOF
           box-shadow:0 8px 32px rgba(7,26,55,.08); }
   .icon { width:96px; height:96px; margin:0 auto 20px; }
   h1 { font-size:26px; font-weight:700; letter-spacing:.02em; }
-  .tag { color:var(--sub); font-size:13px; margin-top:6px; }
-  .ver { display:inline-block; margin:18px 0 26px; padding:6px 14px; border-radius:999px;
-         background:linear-gradient(90deg,var(--accent2),var(--accent)); color:#fff;
-         font-size:14px; font-weight:600; }
+  .tag { color:var(--sub); font-size:13px; margin-top:6px; margin-bottom:26px; }
   .btn { display:block; padding:16px; border-radius:14px; background:var(--accent);
          color:#fff; text-decoration:none; font-size:17px; font-weight:700;
          transition:opacity .15s; }
+  .btn.win { background:linear-gradient(90deg,#0b62a4,#167dc8); margin-top:22px; }
   .btn:hover { opacity:.88; }
   .meta { color:var(--sub); font-size:12px; margin-top:10px; }
+  .pending { margin-top:22px; padding:14px; border:1px dashed var(--line); border-radius:14px;
+             color:var(--sub); font-size:13px; }
   .steps { text-align:left; margin-top:30px; padding-top:22px; border-top:1px solid var(--line);
            color:var(--sub); font-size:13px; line-height:1.9; }
   .steps b { color:var(--text); font-weight:600; display:block; margin-bottom:4px; }
@@ -59,16 +98,16 @@ cat > docs/index.html <<HTML_EOF
 <main class="card">
   <img class="icon" src="icon.svg" alt="HS Voice">
   <h1>HS Voice</h1>
-  <p class="tag">音声入力アプリ(macOS)・社内配布用</p>
-  <div class="ver">v$VERSION($DATE 更新)</div>
-  <a class="btn" href="downloads/HSVoice-Installer.pkg" download>最新版をダウンロード(.pkg)</a>
-  <p class="meta">HSVoice-Installer.pkg / $SIZE</p>
+  <p class="tag">音声入力アプリ・社内配布用</p>
+  <a class="btn" href="downloads/HSVoice-Installer.pkg" download>macOS版をダウンロード(.pkg)</a>
+  <p class="meta">v$VERSION / $SIZE / $DATE 更新</p>
+  $WIN_BLOCK
   <div class="steps">
     <b>インストール方法</b>
-    1. 上のボタンから pkg をダウンロード<br>
-    2. ダウンロードした pkg をダブルクリックしてインストール<br>
-    3. 「アプリケーション」から HS Voice を起動<br>
-    ※ 開けない場合: システム設定 → プライバシーとセキュリティ →「このまま開く」
+    1. 上のボタンからインストーラをダウンロード<br>
+    2. ダウンロードしたファイルをダブルクリックしてインストール<br>
+    3. アプリを起動して利用開始<br>
+    ※ Mac で開けない場合: システム設定 → プライバシーとセキュリティ →「このまま開く」$WIN_STEPS
   </div>
   <div class="steps">
     <b>プライバシーについて</b>
@@ -81,4 +120,8 @@ cat > docs/index.html <<HTML_EOF
 HTML_EOF
 
 cp Assets/AppIcon.svg docs/icon.svg
-echo "更新完了: v$VERSION ($SIZE) → docs/"
+if [ -n "$WIN_URL" ]; then
+  echo "更新完了: macOS v$VERSION ($SIZE) + Windows v${WIN_VERSION:-?} → docs/"
+else
+  echo "更新完了: macOS v$VERSION ($SIZE)(Windows版: 準備中表示)→ docs/"
+fi

@@ -20,15 +20,15 @@
           box-shadow:0 8px 32px rgba(7,26,55,.08); }
   .icon { width:96px; height:96px; margin:0 auto 20px; }
   h1 { font-size:26px; font-weight:700; letter-spacing:.02em; }
-  .tag { color:var(--sub); font-size:13px; margin-top:6px; }
-  .ver { display:inline-block; margin:18px 0 26px; padding:6px 14px; border-radius:999px;
-         background:linear-gradient(90deg,var(--accent2),var(--accent)); color:#fff;
-         font-size:14px; font-weight:600; }
+  .tag { color:var(--sub); font-size:13px; margin-top:6px; margin-bottom:26px; }
   .btn { display:block; padding:16px; border-radius:14px; background:var(--accent);
          color:#fff; text-decoration:none; font-size:17px; font-weight:700;
          transition:opacity .15s; }
+  .btn.win { background:linear-gradient(90deg,#0b62a4,#167dc8); margin-top:22px; }
   .btn:hover { opacity:.88; }
   .meta { color:var(--sub); font-size:12px; margin-top:10px; }
+  .pending { margin-top:22px; padding:14px; border:1px dashed var(--line); border-radius:14px;
+             color:var(--sub); font-size:13px; }
   .steps { text-align:left; margin-top:30px; padding-top:22px; border-top:1px solid var(--line);
            color:var(--sub); font-size:13px; line-height:1.9; }
   .steps b { color:var(--text); font-weight:600; display:block; margin-bottom:4px; }
@@ -38,16 +38,17 @@
 <main class="card">
   <img class="icon" src="icon.svg" alt="HS Voice">
   <h1>HS Voice</h1>
-  <p class="tag">音声入力アプリ(macOS)・社内配布用</p>
-  <div class="ver">v1.5.0(2026-08-26 更新)</div>
-  <a class="btn" href="downloads/HSVoice-Installer.pkg" download>最新版をダウンロード(.pkg)</a>
-  <p class="meta">HSVoice-Installer.pkg / 960 KB</p>
+  <p class="tag">音声入力アプリ・社内配布用</p>
+  <a class="btn" href="downloads/HSVoice-Installer.pkg" download>macOS版をダウンロード(.pkg)</a>
+  <p class="meta">v1.5.0 / 960 KB / 2026-08-26 更新</p>
+  <a class="btn win" href="https://github.com/kaiamucun/hsvoice/releases/download/win-v1.0.1/HSVoice-Installer-1.0.1-x64.msi">Windows版をダウンロード(.msi)</a>
+  <p class="meta">v1.0.1 / 556 MB / 2026-08-26 更新</p>
   <div class="steps">
     <b>インストール方法</b>
-    1. 上のボタンから pkg をダウンロード<br>
-    2. ダウンロードした pkg をダブルクリックしてインストール<br>
-    3. 「アプリケーション」から HS Voice を起動<br>
-    ※ 開けない場合: システム設定 → プライバシーとセキュリティ →「このまま開く」
+    1. 上のボタンからインストーラをダウンロード<br>
+    2. ダウンロードしたファイルをダブルクリックしてインストール<br>
+    3. アプリを起動して利用開始<br>
+    ※ Mac で開けない場合: システム設定 → プライバシーとセキュリティ →「このまま開く」<br>※ Windows: ダブルクリックでインストール。「WindowsによってPCが保護されました」と出た場合は「詳細情報」→「実行」<br>※ Windows: 初回起動時に音声認識モデル(約574MB)を自動ダウンロードします
   </div>
   <div class="steps">
     <b>プライバシーについて</b>
