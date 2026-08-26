@@ -43,7 +43,7 @@ jobs:
 
       - name: WiXインストール
         run: |
-          dotnet tool install --global wix 2>&1 | Tee-Object ../log-wix-install.txt
+          dotnet tool install --global wix --version 5.0.2 2>&1 | Tee-Object ../log-wix-install.txt
           "$env:USERPROFILE\.dotnet\tools" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
 
       - name: whisperモデルをダウンロード

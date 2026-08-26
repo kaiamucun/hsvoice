@@ -6,7 +6,7 @@
 
 ```powershell
 winget install Microsoft.DotNet.SDK.8
-dotnet tool install --global wix
+dotnet tool install --global wix --version 5.0.2
 ```
 
 ## ビルド(モデル非同梱・推奨)
