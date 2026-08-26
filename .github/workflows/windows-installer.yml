@@ -66,8 +66,9 @@ jobs:
         run: |
           $v = '${{ steps.ver.outputs.version }}'
           New-Item -ItemType Directory -Force "release/HSVoice-$v" | Out-Null
+          $pub = (Resolve-Path dist/publish-x64).Path
           wix build Packaging/Package.wxs -arch x64 `
-            -d "ProductVersion=$v" -d "PublishDir=dist\publish-x64" `
+            -d "ProductVersion=$v" -d "PublishDir=$pub" `
             -o "release/HSVoice-$v/HSVoice-Installer-$v-x64.msi" 2>&1 | Tee-Object ../log-msi.txt
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Get-Item "release/HSVoice-$v/HSVoice-Installer-$v-x64.msi"
@@ -89,6 +90,10 @@ jobs:
         if: failure()
         working-directory: .
         run: |
+          $last = Get-ChildItem log-*.txt -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
+          if ($last) {
+            foreach ($line in (Get-Content $last -Tail 10)) { Write-Output "::error::[$($last.Name)] $line" }
+          }
           "## ビルド失敗ログ(各工程の末尾)" >> $env:GITHUB_STEP_SUMMARY
           foreach ($f in Get-ChildItem log-*.txt -ErrorAction SilentlyContinue) {
             "### $($f.Name)" >> $env:GITHUB_STEP_SUMMARY

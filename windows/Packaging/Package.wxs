@@ -12,7 +12,7 @@
            Version="$(var.ProductVersion)"
            UpgradeCode="7f3a2c1e-9b48-4d5a-8f0e-2c6d1b7a4e93"
            Language="1041"
-           Codepage="65001"
+           Codepage="932"
            Scope="perMachine"
            Compressed="yes">
 
