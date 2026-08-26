@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    依存パッケージなしの自己完結テストランナー。
+    `dotnet run -\-project tests/HSVoice.Core.Tests` で全テストを実行し、
+    失敗があれば終了コード1を返す。xunit等を使わないのは、
+    パッケージ取得ができないオフライン環境でも検証を回せるようにするため。
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\HSVoice.Core\HSVoice.Core.csproj" />
+  </ItemGroup>
+
+</Project>

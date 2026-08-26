@@ -1,0 +1,39 @@
+<Window x:Class="HSVoice.App.OverlayWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="HS Voice"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ShowActivated="False"
+        Focusable="False"
+        SizeToContent="Width"
+        Height="44"
+        MinWidth="260"
+        MaxWidth="720">
+  <!-- 最小限の1行オーバーレイ(macOS版のUX決定を踏襲)。フォーカスは決して奪わない。 -->
+  <Border CornerRadius="12"
+          Background="#E6202124"
+          BorderBrush="#33FFFFFF"
+          BorderThickness="1"
+          Padding="14,0">
+    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+      <Ellipse x:Name="StateDot" Width="10" Height="10" Fill="#FF5AC8FA"
+               VerticalAlignment="Center" Margin="0,0,10,0"/>
+      <TextBlock x:Name="StateTitle" Text="聞いています" Foreground="#FFEEEEEE"
+                 FontSize="13" VerticalAlignment="Center" Margin="0,0,12,0"/>
+      <TextBlock x:Name="LiveText" Text="" Foreground="#FFFFFFFF" FontSize="14"
+                 VerticalAlignment="Center" MaxWidth="420"
+                 TextTrimming="CharacterEllipsis" Margin="0,0,12,0"/>
+      <Border Width="52" Height="6" CornerRadius="3" Background="#33FFFFFF"
+              VerticalAlignment="Center" Margin="0,0,12,0">
+        <Rectangle x:Name="LevelBar" Height="6" HorizontalAlignment="Left"
+                   RadiusX="3" RadiusY="3" Width="0" Fill="#FF5AC8FA"/>
+      </Border>
+      <TextBlock x:Name="TimerText" Text="0:00" Foreground="#FFBBBBBB"
+                 FontSize="12" VerticalAlignment="Center"/>
+    </StackPanel>
+  </Border>
+</Window>

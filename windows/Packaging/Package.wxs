@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  HS Voice for Windows — MSIインストーラ定義(WiX v4/v5)。
+  macOS版の「単一PKG」方針の対応物: 手動配布とIntune/MDM配布で同じMSIを使う。
+
+  ビルドは scripts\build-installer.ps1 から行う(dotnet publish → wix build)。
+  publish出力フォルダを丸ごと取り込むため、ファイル一覧の手動保守は不要。
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="HS Voice"
+           Manufacturer="HS"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="7f3a2c1e-9b48-4d5a-8f0e-2c6d1b7a4e93"
+           Language="1041"
+           Codepage="65001"
+           Scope="perMachine"
+           Compressed="yes">
+
+    <!-- 旧バージョンは自動的に置き換える(ダウングレードは禁止) -->
+    <MajorUpgrade DowngradeErrorMessage="より新しいバージョンのHS Voiceが既にインストールされています。"/>
+
+    <MediaTemplate EmbedCab="yes"/>
+
+    <!-- インストール先: C:\Program Files\HS Voice -->
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="HS Voice"/>
+    </StandardDirectory>
+
+    <!-- スタートメニューのショートカット -->
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut" Guid="5e8d4b2a-1c7f-4a93-b6e0-9d3f8a2c5b17">
+        <Shortcut Id="AppShortcut"
+                  Name="HS Voice"
+                  Target="[INSTALLFOLDER]HSVoice.exe"
+                  WorkingDirectory="INSTALLFOLDER"/>
+        <RegistryValue Root="HKCU" Key="Software\HS Voice" Name="installed"
+                       Type="integer" Value="1" KeyPath="yes"/>
+      </Component>
+    </StandardDirectory>
+
+    <!-- dotnet publish の出力を丸ごと取り込む(モデル同梱時はmodels\も含まれる) -->
+    <Files Include="$(var.PublishDir)\**" Directory="INSTALLFOLDER"/>
+
+    <Feature Id="Main" Title="HS Voice" Level="1">
+      <ComponentRef Id="StartMenuShortcut"/>
+    </Feature>
+  </Package>
+</Wix>

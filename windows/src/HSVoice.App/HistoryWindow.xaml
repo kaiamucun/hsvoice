@@ -1,0 +1,31 @@
+<Window x:Class="HSVoice.App.HistoryWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="HS Voice 履歴"
+        Width="560" Height="480"
+        WindowStartupLocation="CenterScreen">
+  <DockPanel Margin="14">
+    <TextBlock DockPanel.Dock="Top" x:Name="EmptyHint"
+               Text="履歴はありません。設定で「テキスト履歴を保存する」を有効にすると、入力したテキストがこのPCの中にだけ保存されます(最大100件)。"
+               TextWrapping="Wrap" Foreground="#FF777777" Margin="0,0,0,10"/>
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,10,0,0">
+      <Button x:Name="ReinsertButton" Content="もう一度入力" Padding="12,5" Click="OnReinsert"/>
+      <Button x:Name="CopyButton" Content="コピー" Padding="12,5" Margin="8,0,0,0" Click="OnCopy"/>
+      <Button x:Name="DeleteButton" Content="削除" Padding="12,5" Margin="8,0,0,0" Click="OnDelete"/>
+      <Button Content="すべて消去" Padding="12,5" Margin="24,0,0,0" Click="OnClearAll"/>
+    </StackPanel>
+    <ListView x:Name="HistoryList" SelectionMode="Single"
+              SelectionChanged="OnSelectionChanged">
+      <ListView.View>
+        <GridView>
+          <GridViewColumn Header="日時" Width="130"
+                          DisplayMemberBinding="{Binding CreatedAtText}"/>
+          <GridViewColumn Header="アプリ" Width="90"
+                          DisplayMemberBinding="{Binding ApplicationName}"/>
+          <GridViewColumn Header="テキスト" Width="290"
+                          DisplayMemberBinding="{Binding Preview}"/>
+        </GridView>
+      </ListView.View>
+    </ListView>
+  </DockPanel>
+</Window>

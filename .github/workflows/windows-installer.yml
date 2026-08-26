@@ -1,0 +1,70 @@
+name: Build Windows Installer
+
+# 起動方法:
+#   - win-v1.0.0 のようなタグをpushすると自動起動
+#   - GitHubのActionsタブから手動起動(Run workflow)も可能
+on:
+  push:
+    tags: ['win-v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'バージョン (例: 1.0.0)'
+        default: '1.0.0'
+
+permissions:
+  contents: write   # Releasesへのアップロードに必要
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: バージョン決定
+        id: ver
+        shell: pwsh
+        run: |
+          $v = if ('${{ github.ref_type }}' -eq 'tag') {
+            '${{ github.ref_name }}' -replace '^win-v', ''
+          } else { '${{ inputs.version }}' }
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: テスト実行
+        continue-on-error: true
+        shell: pwsh
+        working-directory: windows
+        run: dotnet test tests/HSVoice.Core.Tests
+
+      - name: WiXインストール
+        run: dotnet tool install --global wix
+
+      - name: whisperモデルをダウンロード
+        shell: pwsh
+        working-directory: windows
+        run: ./scripts/download-model.ps1
+
+      - name: MSIビルド(モデル同梱)
+        shell: pwsh
+        working-directory: windows
+        run: ./scripts/build-installer.ps1 -BundleModel -Version ${{ steps.ver.outputs.version }}
+
+      - name: Releaseを作成しMSIをアップロード
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = '${{ steps.ver.outputs.version }}'
+          $msi = "windows/release/HSVoice-$v/HSVoice-Installer-$v-x64.msi"
+          $size = "{0:N0} MB" -f ((Get-Item $msi).Length / 1MB)
+          if ('${{ github.ref_type }}' -ne 'tag') {
+            git tag "win-v$v" 2>$null; git push origin "win-v$v" 2>$null
+          }
+          gh release create "win-v$v" `
+            --title "HS Voice for Windows v$v" `
+            --notes "Windows版MSIインストーラ(音声認識モデル同梱・$size)。社内配布用。" `
+            $msi --repo ${{ github.repository }}
