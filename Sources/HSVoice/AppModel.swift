@@ -13,6 +13,12 @@ final class AppModel: ObservableObject {
   @Published private(set) var lastOutcome: TextInsertionOutcome?
   @Published private(set) var targetApplicationName: String?
   @Published private(set) var shortcutAvailable = true
+  @Published private(set) var repeatShortcutAvailable = true
+  /// True while a settings recorder is capturing keys. All global shortcut
+  /// registrations are suspended and re-registration is deferred to
+  /// `endShortcutCapture()`, so nothing can fire — or steal a keyDown from the
+  /// recorder — mid-capture.
+  @Published private(set) var isCapturingShortcut = false
   @Published private(set) var recordingDuration: TimeInterval = 0
   @Published private(set) var lastErrorMessage: String?
   @Published private(set) var canUndoLastInsertion = false
@@ -50,7 +56,9 @@ final class AppModel: ObservableObject {
     restoreAutomaticInsertionIfAvailable()
     hotKeyManager.onPressed = { [weak self] in self?.handleShortcutPressed() }
     hotKeyManager.onReleased = { [weak self] in self?.handleShortcutReleased() }
+    hotKeyManager.onRepeatPressed = { [weak self] in self?.handleRepeatShortcutPressed() }
     shortcutAvailable = hotKeyManager.register(settings.shortcutChoice)
+    applyRepeatShortcutRegistration()
     observeLanguageChanges()
     OverlayWindowController.shared.show()
   }
@@ -88,9 +96,76 @@ final class AppModel: ObservableObject {
   }
 
   func setShortcut(_ shortcut: ShortcutChoice) {
+    guard isCapturingShortcut || state.allowsConfigurationChanges else { return }
+    // A recorded combo that matches a preset becomes that preset, so the
+    // preset menu's checkmark and the stored rawValue stay canonical.
+    var resolved = shortcut
+    if case .custom(.key(let combo)) = shortcut,
+      let preset = ShortcutChoice.presets.first(where: { $0.keyCombo == combo })
+    {
+      resolved = preset
+    }
+    settings.shortcutChoice = resolved
+    guard !isCapturingShortcut else { return }  // registered in endShortcutCapture
+    shortcutAvailable = hotKeyManager.register(resolved)
+    // The dictation shortcut wins a collision: re-evaluate the repeat shortcut
+    // so a now-conflicting one is unregistered and flagged instead of
+    // double-firing (Carbon happily registers the same combo twice).
+    applyRepeatShortcutRegistration()
+  }
+
+  func setRepeatShortcutEnabled(_ enabled: Bool) {
+    guard isCapturingShortcut || state.allowsConfigurationChanges else { return }
+    settings.repeatShortcutEnabled = enabled
+    guard !isCapturingShortcut else { return }
+    applyRepeatShortcutRegistration()
+  }
+
+  func setRepeatShortcut(_ combo: InputCombo) {
+    guard isCapturingShortcut || state.allowsConfigurationChanges else { return }
+    settings.repeatShortcut = combo
+    guard !isCapturingShortcut else { return }
+    applyRepeatShortcutRegistration()
+  }
+
+  private func applyRepeatShortcutRegistration() {
+    guard settings.repeatShortcutEnabled else {
+      hotKeyManager.unregisterRepeatShortcut()
+      repeatShortcutAvailable = true
+      return
+    }
+    // The recorders check conflicts at capture time, but other paths (the
+    // preset menu, enabling the toggle while its stored default collides)
+    // bypass them — enforce here so both shortcuts can never share a trigger.
+    guard settings.repeatShortcut != settings.shortcutChoice.inputCombo else {
+      hotKeyManager.unregisterRepeatShortcut()
+      repeatShortcutAvailable = false
+      return
+    }
+    repeatShortcutAvailable = hotKeyManager.registerRepeatShortcut(settings.repeatShortcut)
+  }
+
+  /// While the settings recorder is capturing keys, no global shortcut may
+  /// fire — the user is pressing candidate combinations, not commands.
+  func beginShortcutCapture() {
+    isCapturingShortcut = true
+    hotKeyManager.suspendRegistrations()
+  }
+
+  func endShortcutCapture() {
+    isCapturingShortcut = false
+    shortcutAvailable = hotKeyManager.register(settings.shortcutChoice)
+    applyRepeatShortcutRegistration()
+  }
+
+  /// Global shortcut: type the last dictation again at the current cursor.
+  /// Falls back to the newest history entry after a relaunch (history is only
+  /// recorded when the user has opted in).
+  func handleRepeatShortcutPressed() {
     guard state.allowsConfigurationChanges else { return }
-    settings.shortcutChoice = shortcut
-    shortcutAvailable = hotKeyManager.register(shortcut)
+    let text = lastTranscript.isEmpty ? (history.entries.first?.text ?? "") : lastTranscript
+    guard !text.isEmpty else { return }
+    insertText(text)
   }
 
   func setInsertionMode(_ mode: InsertionMode) {
@@ -262,6 +337,9 @@ final class AppModel: ObservableObject {
     if settings.shortcutChoice == .functionKey, state.allowsConfigurationChanges {
       shortcutAvailable = hotKeyManager.register(settings.shortcutChoice)
     }
+    // A fresh Accessibility grant lets a mouse trigger's consuming tap replace
+    // the non-consuming NSEvent fallback.
+    hotKeyManager.upgradeMouseWatcherIfPossible()
     objectWillChange.send()
   }
 

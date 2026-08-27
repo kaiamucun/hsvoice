@@ -109,16 +109,57 @@ struct AudioLevelThrottle {
   }
 }
 
-/// Thread-safe box so the audio thread can consult the throttle without touching
-/// main-actor state. Shared by both dictation engines.
+/// Attack/release envelope follower that turns the jittery raw RMS level into a
+/// continuous curve: it rises quickly when the input gets louder and falls back
+/// slowly when it gets quieter. Runs per tap buffer, *before* the throttle, so
+/// the values that do reach SwiftUI already describe smooth motion.
+struct AudioLevelEnvelope {
+  let attackTime: TimeInterval
+  let releaseTime: TimeInterval
+
+  private var value = 0.0
+  private var lastTime: TimeInterval?
+
+  init(
+    attackTime: TimeInterval = Timing.audioLevelAttackTime,
+    releaseTime: TimeInterval = Timing.audioLevelReleaseTime
+  ) {
+    self.attackTime = attackTime
+    self.releaseTime = releaseTime
+  }
+
+  mutating func process(_ level: Double, at time: TimeInterval) -> Double {
+    guard let lastTime else {
+      self.lastTime = time
+      value = level
+      return value
+    }
+    let elapsed = max(0, time - lastTime)
+    self.lastTime = time
+    // One-pole smoothing with a time-based coefficient, so the curve shape is
+    // independent of the tap's buffer cadence.
+    let timeConstant = level > value ? attackTime : releaseTime
+    let alpha = timeConstant > 0 ? 1 - exp(-elapsed / timeConstant) : 1
+    value += (level - value) * alpha
+    return value
+  }
+}
+
+/// Thread-safe box so the audio thread can smooth and rate-limit levels without
+/// touching main-actor state. Shared by both dictation engines. Returns the
+/// envelope-smoothed level when an update is due, nil when this buffer's level
+/// should not reach the UI.
 final class AudioLevelGate: @unchecked Sendable {
+  private var envelope = AudioLevelEnvelope()
   private var throttle = AudioLevelThrottle()
   private let lock = NSLock()
 
-  func allows(_ level: Double) -> Bool {
+  func smoothedLevel(_ rawLevel: Double) -> Double? {
     lock.lock()
     defer { lock.unlock() }
-    return throttle.shouldSend(level: level, at: CFAbsoluteTimeGetCurrent())
+    let now = CFAbsoluteTimeGetCurrent()
+    let smoothed = envelope.process(rawLevel, at: now)
+    return throttle.shouldSend(level: smoothed, at: now) ? smoothed : nil
   }
 }
 
@@ -309,8 +350,8 @@ final class SpeechTranscriber {
       [weak self] buffer, _ in
       box.append(buffer)
       guard let self else { return }
-      let level = AudioLevelMeter.normalizedLevel(from: buffer)
-      guard levelGate.allows(level) else { return }
+      guard let level = levelGate.smoothedLevel(AudioLevelMeter.normalizedLevel(from: buffer))
+      else { return }
       Task { @MainActor in
         guard self.sessionTracker.contains(sessionID) else { return }
         self.onLevel?(level)

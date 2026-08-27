@@ -4,6 +4,10 @@ struct RecordingOverlayView: View {
   @ObservedObject var model: AppModel
   @ObservedObject private var settings = SettingsStore.shared
 
+  /// Shared geometry between the idle pill and the recording bar, so switching
+  /// states morphs one capsule instead of popping two unrelated views.
+  @Namespace private var capsuleMorph
+
   var body: some View {
     ZStack(alignment: .bottom) {
       Color.clear
@@ -15,15 +19,17 @@ struct RecordingOverlayView: View {
           // states always show, so feedback during dictation is never lost.
           if settings.showIdleIndicator {
             compactStatus
-              .transition(.scale(scale: 0.92, anchor: .bottom).combined(with: .opacity))
+              .matchedGeometryEffect(id: "statusCapsule", in: capsuleMorph)
+              .transition(.opacity)
           }
         case .expanded:
           expandedStatus
-            .transition(.scale(scale: 0.96, anchor: .bottom).combined(with: .opacity))
+            .matchedGeometryEffect(id: "statusCapsule", in: capsuleMorph)
+            .transition(.opacity)
         }
       }
       .animation(
-        .spring(response: 0.3, dampingFraction: 0.84),
+        .spring(response: 0.32, dampingFraction: 0.85),
         value: model.state.overlayPresentation
       )
     }

@@ -1,3 +1,4 @@
+import AppKit
 import Carbon.HIToolbox
 import CoreGraphics
 import Foundation
@@ -10,12 +11,31 @@ private func handleGlobalHotKey(
   guard let event, let userData else { return OSStatus(eventNotHandledErr) }
   let manager = Unmanaged<GlobalHotKeyManager>.fromOpaque(userData).takeUnretainedValue()
 
-  switch GetEventKind(event) {
-  case UInt32(kEventHotKeyPressed):
+  var hotKeyID = EventHotKeyID()
+  let idStatus = GetEventParameter(
+    event,
+    EventParamName(kEventParamDirectObject),
+    EventParamType(typeEventHotKeyID),
+    nil,
+    MemoryLayout<EventHotKeyID>.size,
+    nil,
+    &hotKeyID
+  )
+  guard idStatus == noErr else { return OSStatus(eventNotHandledErr) }
+
+  switch (GetEventKind(event), hotKeyID.id) {
+  case (UInt32(kEventHotKeyPressed), GlobalHotKeyManager.dictationHotKeyID):
     DispatchQueue.main.async { manager.receivePressed() }
     return noErr
-  case UInt32(kEventHotKeyReleased):
+  case (UInt32(kEventHotKeyReleased), GlobalHotKeyManager.dictationHotKeyID):
     DispatchQueue.main.async { manager.receiveReleased() }
+    return noErr
+  case (UInt32(kEventHotKeyPressed), GlobalHotKeyManager.repeatHotKeyID):
+    DispatchQueue.main.async { manager.receiveRepeatPressed() }
+    return noErr
+  case (UInt32(kEventHotKeyReleased), GlobalHotKeyManager.repeatHotKeyID):
+    // A repeat trigger only acts on the press; the release is still consumed
+    // so it does not leak to the frontmost app.
     return noErr
   default:
     return OSStatus(eventNotHandledErr)
@@ -57,12 +77,60 @@ private func handleFunctionKeyEvent(
   return nil
 }
 
+private func handleMouseButtonEvent(
+  _ proxy: CGEventTapProxy,
+  _ type: CGEventType,
+  _ event: CGEvent,
+  _ userData: UnsafeMutableRawPointer?
+) -> Unmanaged<CGEvent>? {
+  guard let userData else { return Unmanaged.passUnretained(event) }
+  let manager = Unmanaged<GlobalHotKeyManager>.fromOpaque(userData).takeUnretainedValue()
+
+  if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+    DispatchQueue.main.async { manager.reenableMouseTap() }
+    return Unmanaged.passUnretained(event)
+  }
+
+  guard type == .otherMouseDown || type == .otherMouseUp else {
+    return Unmanaged.passUnretained(event)
+  }
+
+  // The consume decision must be synchronous, so the match runs right here on
+  // the main run loop (where this tap is scheduled); only the resulting state
+  // transitions are dispatched, keeping the callback as cheap as the fn tap's.
+  let consumed = manager.processMouseButtonEvent(
+    isDown: type == .otherMouseDown,
+    button: event.getIntegerValueField(.mouseEventButtonNumber),
+    carbonModifiers: KeyCombo.carbonModifiers(from: event.flags)
+  )
+  return consumed ? nil : Unmanaged.passUnretained(event)
+}
+
 final class GlobalHotKeyManager {
   var onPressed: (() -> Void)?
   var onReleased: (() -> Void)?
+  /// Fired on the press of the separately registered "re-insert the last
+  /// dictation" shortcut.
+  var onRepeatPressed: (() -> Void)?
+
+  /// Carbon hot-key IDs (`EventHotKeyID.id`) telling the shared event handler
+  /// which registration fired.
+  fileprivate static let dictationHotKeyID: UInt32 = 1
+  fileprivate static let repeatHotKeyID: UInt32 = 2
 
   private var hotKeyRef: EventHotKeyRef?
+  private var repeatHotKeyRef: EventHotKeyRef?
   private var eventHandlerRef: EventHandlerRef?
+  private var dictationMouseCombo: MouseButtonCombo?
+  private var repeatMouseCombo: MouseButtonCombo?
+  private var mouseEventTap: CFMachPort?
+  private var mouseEventSource: CFRunLoopSource?
+  private var mouseFallbackMonitors: [Any] = []
+  /// Buttons whose *down* this manager consumed, so the matching *up* is also
+  /// consumed (an app must never receive an orphan button-up), and releases
+  /// stay permissive about modifiers the way fn releases are.
+  private var dictationMouseButtonIsDown = false
+  private var repeatMouseButtonIsDown = false
   private var functionEventTap: CFMachPort?
   private var functionEventSource: CFRunLoopSource?
   private var functionPollingTimer: Timer?
@@ -77,16 +145,82 @@ final class GlobalHotKeyManager {
 
   @discardableResult
   func register(_ shortcut: ShortcutChoice) -> Bool {
-    unregister()
+    unregisterDictationShortcut()
 
-    if shortcut == .functionKey {
+    switch shortcut {
+    case .functionKey:
       return registerFunctionKey()
+    case .custom(.mouse(let combo)):
+      guard combo.isUsableAsGlobalShortcut else { return false }
+      dictationMouseCombo = combo
+      return ensureMouseWatcher()
+    default:
+      guard let combo = shortcut.keyCombo, combo.isUsableAsGlobalShortcut else { return false }
+      guard let ref = registerCombo(combo, identifier: Self.dictationHotKeyID) else { return false }
+      hotKeyRef = ref
+      return true
     }
-
-    return registerSpaceShortcut(shortcut)
   }
 
-  private func registerSpaceShortcut(_ shortcut: ShortcutChoice) -> Bool {
+  /// Registers the independent "re-insert the last dictation" shortcut.
+  /// It shares the Carbon event handler with the dictation shortcut but has
+  /// its own registration, so either can change without touching the other.
+  @discardableResult
+  func registerRepeatShortcut(_ input: InputCombo) -> Bool {
+    unregisterRepeatShortcut()
+    guard input.isUsableAsGlobalShortcut else { return false }
+    switch input {
+    case .key(let combo):
+      guard let ref = registerCombo(combo, identifier: Self.repeatHotKeyID) else { return false }
+      repeatHotKeyRef = ref
+      return true
+    case .mouse(let combo):
+      repeatMouseCombo = combo
+      return ensureMouseWatcher()
+    }
+  }
+
+  func unregisterRepeatShortcut() {
+    if let repeatHotKeyRef {
+      UnregisterEventHotKey(repeatHotKeyRef)
+      self.repeatHotKeyRef = nil
+    }
+    repeatMouseCombo = nil
+    repeatMouseButtonIsDown = false
+    removeEventHandlerIfUnused()
+    tearDownMouseWatcherIfUnused()
+  }
+
+  /// Both registrations are torn down while the settings recorder captures a
+  /// combination, so the keys being tried out cannot trigger the app itself.
+  /// The caller re-registers both when capture ends.
+  func suspendRegistrations() {
+    unregisterDictationShortcut()
+    unregisterRepeatShortcut()
+  }
+
+  private func registerCombo(_ combo: KeyCombo, identifier: UInt32) -> EventHotKeyRef? {
+    guard ensureEventHandlerInstalled() else { return nil }
+
+    let hotKeyID = EventHotKeyID(signature: OSType(0x4853_5643), id: identifier)  // HSVC
+    var ref: EventHotKeyRef?
+    let registerStatus = RegisterEventHotKey(
+      UInt32(combo.keyCode),
+      combo.carbonModifiers,
+      hotKeyID,
+      GetApplicationEventTarget(),
+      0,
+      &ref
+    )
+    guard registerStatus == noErr, let ref else {
+      removeEventHandlerIfUnused()
+      return nil
+    }
+    return ref
+  }
+
+  private func ensureEventHandlerInstalled() -> Bool {
+    guard eventHandlerRef == nil else { return true }
 
     var eventTypes = [
       EventTypeSpec(
@@ -103,26 +237,25 @@ final class GlobalHotKeyManager {
       Unmanaged.passUnretained(self).toOpaque(),
       &eventHandlerRef
     )
-    guard installStatus == noErr else { return false }
+    return installStatus == noErr
+  }
 
-    let identifier = EventHotKeyID(signature: OSType(0x4853_5643), id: 1)  // HSVC
-    let registerStatus = RegisterEventHotKey(
-      UInt32(kVK_Space),
-      modifiers(for: shortcut),
-      identifier,
-      GetApplicationEventTarget(),
-      0,
-      &hotKeyRef
-    )
-    guard registerStatus == noErr else {
-      unregister()
-      return false
-    }
-    return true
+  private func removeEventHandlerIfUnused() {
+    guard hotKeyRef == nil, repeatHotKeyRef == nil, let eventHandlerRef else { return }
+    RemoveEventHandler(eventHandlerRef)
+    self.eventHandlerRef = nil
   }
 
   func unregister() {
+    unregisterDictationShortcut()
+    unregisterRepeatShortcut()
+  }
+
+  private func unregisterDictationShortcut() {
     isPressed = false
+    dictationMouseCombo = nil
+    dictationMouseButtonIsDown = false
+    tearDownMouseWatcherIfUnused()
     functionTapConfirmed = false
     registrationGeneration &+= 1
     functionPollingTimer?.invalidate()
@@ -141,10 +274,152 @@ final class GlobalHotKeyManager {
       UnregisterEventHotKey(hotKeyRef)
       self.hotKeyRef = nil
     }
-    if let eventHandlerRef {
-      RemoveEventHandler(eventHandlerRef)
-      self.eventHandlerRef = nil
+    removeEventHandlerIfUnused()
+  }
+
+  /// One shared watcher serves both mouse-triggered shortcuts. Preferred form
+  /// is a CGEvent tap (consumes the click so the app under the cursor never
+  /// sees it — a side button won't also navigate the browser); without the
+  /// Accessibility permission the tap cannot be created and NSEvent global +
+  /// local monitors take over, which trigger fine but cannot consume.
+  private func ensureMouseWatcher() -> Bool {
+    guard mouseEventTap == nil, mouseFallbackMonitors.isEmpty else { return true }
+
+    let eventMask =
+      (CGEventMask(1) << CGEventType.otherMouseDown.rawValue)
+      | (CGEventMask(1) << CGEventType.otherMouseUp.rawValue)
+    if let eventTap = CGEvent.tapCreate(
+      tap: .cgSessionEventTap,
+      place: .headInsertEventTap,
+      options: .defaultTap,
+      eventsOfInterest: eventMask,
+      callback: handleMouseButtonEvent,
+      userInfo: Unmanaged.passUnretained(self).toOpaque()
+    ) {
+      guard let eventSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
+      else {
+        // Never abandon an active tap: unserviced it would stall button
+        // delivery system-wide until macOS disables it.
+        CFMachPortInvalidate(eventTap)
+        installMouseFallbackMonitors()
+        return true
+      }
+      mouseEventTap = eventTap
+      mouseEventSource = eventSource
+      CFRunLoopAddSource(CFRunLoopGetMain(), eventSource, .commonModes)
+      CGEvent.tapEnable(tap: eventTap, enable: true)
+      return true
     }
+
+    installMouseFallbackMonitors()
+    return true
+  }
+
+  /// Called after a permissions refresh: an Accessibility grant given while
+  /// the NSEvent fallback is in use lets the consuming tap be created now, so
+  /// mouse triggers stop leaking their clicks to the app under the cursor.
+  func upgradeMouseWatcherIfPossible() {
+    guard mouseEventTap == nil, !mouseFallbackMonitors.isEmpty else { return }
+    guard dictationMouseCombo != nil || repeatMouseCombo != nil else { return }
+    for monitor in mouseFallbackMonitors {
+      NSEvent.removeMonitor(monitor)
+    }
+    mouseFallbackMonitors = []
+    _ = ensureMouseWatcher()
+  }
+
+  private func installMouseFallbackMonitors() {
+    if let global = NSEvent.addGlobalMonitorForEvents(
+      matching: [.otherMouseDown, .otherMouseUp],
+      handler: { [weak self] event in
+        _ = self?.processMouseButtonEvent(
+          isDown: event.type == .otherMouseDown,
+          button: Int64(event.buttonNumber),
+          carbonModifiers: KeyCombo.carbonModifiers(from: event.modifierFlags)
+        )
+      })
+    {
+      mouseFallbackMonitors.append(global)
+    }
+    if let local = NSEvent.addLocalMonitorForEvents(
+      matching: [.otherMouseDown, .otherMouseUp],
+      handler: { [weak self] event in
+        let consumed =
+          self?.processMouseButtonEvent(
+            isDown: event.type == .otherMouseDown,
+            button: Int64(event.buttonNumber),
+            carbonModifiers: KeyCombo.carbonModifiers(from: event.modifierFlags)
+          ) ?? false
+        return consumed ? nil : event
+      })
+    {
+      mouseFallbackMonitors.append(local)
+    }
+  }
+
+  private func tearDownMouseWatcherIfUnused() {
+    guard dictationMouseCombo == nil, repeatMouseCombo == nil else { return }
+    if let mouseEventSource {
+      CFRunLoopRemoveSource(CFRunLoopGetMain(), mouseEventSource, .commonModes)
+      self.mouseEventSource = nil
+    }
+    if let mouseEventTap {
+      CGEvent.tapEnable(tap: mouseEventTap, enable: false)
+      CFMachPortInvalidate(mouseEventTap)
+      self.mouseEventTap = nil
+    }
+    for monitor in mouseFallbackMonitors {
+      NSEvent.removeMonitor(monitor)
+    }
+    mouseFallbackMonitors = []
+  }
+
+  fileprivate func reenableMouseTap() {
+    guard let mouseEventTap else { return }
+    CGEvent.tapEnable(tap: mouseEventTap, enable: true)
+    // The disabled interval may have swallowed a button release. Reset the
+    // down-flags — and end a hold-mode recording — so no state can stick.
+    if dictationMouseButtonIsDown {
+      dictationMouseButtonIsDown = false
+      receiveReleased()
+    }
+    repeatMouseButtonIsDown = false
+  }
+
+  /// Matches a button event against both registrations. Returns whether the
+  /// event was claimed (the tap then consumes it). A press requires the exact
+  /// recorded modifiers; the matching release is permissive about modifiers —
+  /// like fn releases — so letting go of the modifier first still ends a
+  /// hold-to-talk recording.
+  fileprivate func processMouseButtonEvent(
+    isDown: Bool, button: Int64, carbonModifiers: UInt32
+  ) -> Bool {
+    if let combo = dictationMouseCombo, button == Int64(combo.buttonNumber) {
+      if isDown, carbonModifiers == combo.carbonModifiers {
+        dictationMouseButtonIsDown = true
+        DispatchQueue.main.async { self.receivePressed() }
+        return true
+      }
+      if !isDown, dictationMouseButtonIsDown {
+        dictationMouseButtonIsDown = false
+        DispatchQueue.main.async { self.receiveReleased() }
+        return true
+      }
+    }
+
+    if let combo = repeatMouseCombo, button == Int64(combo.buttonNumber) {
+      if isDown, carbonModifiers == combo.carbonModifiers {
+        repeatMouseButtonIsDown = true
+        DispatchQueue.main.async { self.receiveRepeatPressed() }
+        return true
+      }
+      if !isDown, repeatMouseButtonIsDown {
+        repeatMouseButtonIsDown = false
+        return true
+      }
+    }
+
+    return false
   }
 
   fileprivate func receivePressed() {
@@ -157,6 +432,10 @@ final class GlobalHotKeyManager {
     guard isPressed else { return }
     isPressed = false
     onReleased?()
+  }
+
+  fileprivate func receiveRepeatPressed() {
+    onRepeatPressed?()
   }
 
   fileprivate func reenableFunctionKeyTap() {
@@ -306,20 +585,6 @@ final class GlobalHotKeyManager {
       + " synthKeysDown=\(downSynthesizers)"
   }
 
-  private func modifiers(for shortcut: ShortcutChoice) -> UInt32 {
-    switch shortcut {
-    case .functionKey:
-      return 0
-    case .optionSpace:
-      return UInt32(optionKey)
-    case .controlSpace:
-      return UInt32(controlKey)
-    case .commandShiftSpace:
-      return UInt32(cmdKey | shiftKey)
-    case .controlOptionSpace:
-      return UInt32(controlKey | optionKey)
-    }
-  }
 }
 
 enum FunctionKeyTransition: Equatable {

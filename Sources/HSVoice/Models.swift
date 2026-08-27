@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import Foundation
 
 enum VoiceState: Equatable {
@@ -133,22 +134,302 @@ enum InsertionMode: String, CaseIterable, Identifiable, Codable {
   }
 }
 
-enum ShortcutChoice: String, CaseIterable, Identifiable, Codable {
+/// One recorded key combination: a single non-modifier key plus Carbon
+/// modifier flags. This is what the settings recorder captures and what
+/// `GlobalHotKeyManager` hands to `RegisterEventHotKey`.
+struct KeyCombo: Equatable, Hashable, Codable {
+  let keyCode: UInt16
+  /// Carbon modifier mask (`cmdKey | optionKey | controlKey | shiftKey`).
+  let carbonModifiers: UInt32
+
+  var keyLabels: [String] {
+    KeyCombo.modifierSymbols(for: carbonModifiers) + [KeyCombo.keyName(for: keyCode)]
+  }
+
+  var displayName: String { keyLabels.joined(separator: " ") }
+
+  /// F1–F19 may stand alone; anything else needs at least one modifier so a
+  /// global hotkey can never swallow plain typing.
+  var isUsableAsGlobalShortcut: Bool {
+    carbonModifiers != 0 || KeyCombo.functionRowKeyCodes.contains(keyCode)
+  }
+
+  var storageString: String { "\(keyCode):\(carbonModifiers)" }
+
+  init(keyCode: UInt16, carbonModifiers: UInt32) {
+    self.keyCode = keyCode
+    self.carbonModifiers = carbonModifiers
+  }
+
+  init?(storageString: String) {
+    let parts = storageString.split(separator: ":")
+    guard parts.count == 2,
+      let code = UInt16(parts[0]),
+      let modifiers = UInt32(parts[1])
+    else { return nil }
+    self.init(keyCode: code, carbonModifiers: modifiers)
+  }
+
+  /// Default for the "re-insert the last dictation" shortcut: ⌃⌥R.
+  static let defaultRepeatShortcut = KeyCombo(
+    keyCode: UInt16(kVK_ANSI_R),
+    carbonModifiers: UInt32(controlKey | optionKey)
+  )
+
+  /// Builds the Carbon mask from an AppKit event's modifier flags.
+  static func carbonModifiers(from flags: NSEvent.ModifierFlags) -> UInt32 {
+    var modifiers: UInt32 = 0
+    if flags.contains(.control) { modifiers |= UInt32(controlKey) }
+    if flags.contains(.option) { modifiers |= UInt32(optionKey) }
+    if flags.contains(.shift) { modifiers |= UInt32(shiftKey) }
+    if flags.contains(.command) { modifiers |= UInt32(cmdKey) }
+    return modifiers
+  }
+
+  /// Builds the Carbon mask from a CGEvent's flags (the mouse event tap path).
+  static func carbonModifiers(from flags: CGEventFlags) -> UInt32 {
+    var modifiers: UInt32 = 0
+    if flags.contains(.maskControl) { modifiers |= UInt32(controlKey) }
+    if flags.contains(.maskAlternate) { modifiers |= UInt32(optionKey) }
+    if flags.contains(.maskShift) { modifiers |= UInt32(shiftKey) }
+    if flags.contains(.maskCommand) { modifiers |= UInt32(cmdKey) }
+    return modifiers
+  }
+
+  /// Standard macOS display order: ⌃ ⌥ ⇧ ⌘.
+  static func modifierSymbols(for carbonModifiers: UInt32) -> [String] {
+    var symbols: [String] = []
+    if carbonModifiers & UInt32(controlKey) != 0 { symbols.append("⌃") }
+    if carbonModifiers & UInt32(optionKey) != 0 { symbols.append("⌥") }
+    if carbonModifiers & UInt32(shiftKey) != 0 { symbols.append("⇧") }
+    if carbonModifiers & UInt32(cmdKey) != 0 { symbols.append("⌘") }
+    return symbols
+  }
+
+  static let functionRowKeyCodes: Set<UInt16> = [
+    122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111,  // F1–F12
+    105, 107, 113, 106, 64, 79, 80,  // F13–F19
+  ]
+
+  /// Human-readable label for a virtual key code (ANSI layout names, plus the
+  /// JIS keys on Japanese hardware). Unknown codes fall back to "Key NN".
+  static func keyName(for keyCode: UInt16) -> String {
+    if let name = keyNames[keyCode] { return name }
+    return "Key \(keyCode)"
+  }
+
+  private static let keyNames: [UInt16: String] = [
+    0: "A", 1: "S", 2: "D", 3: "F", 4: "H", 5: "G", 6: "Z", 7: "X", 8: "C", 9: "V",
+    11: "B", 12: "Q", 13: "W", 14: "E", 15: "R", 16: "Y", 17: "T",
+    31: "O", 32: "U", 34: "I", 35: "P", 37: "L", 38: "J", 40: "K",
+    45: "N", 46: "M",
+    18: "1", 19: "2", 20: "3", 21: "4", 22: "5", 23: "6", 25: "9", 26: "7", 28: "8", 29: "0",
+    24: "=", 27: "-", 30: "]", 33: "[", 39: "'", 41: ";", 42: "\\",
+    43: ",", 44: "/", 47: ".", 50: "`",
+    36: "Return", 48: "Tab", 49: "Space", 51: "Delete", 53: "esc",
+    117: "⌦", 115: "Home", 119: "End", 116: "PgUp", 121: "PgDn",
+    123: "←", 124: "→", 125: "↓", 126: "↑",
+    122: "F1", 120: "F2", 99: "F3", 118: "F4", 96: "F5", 97: "F6", 98: "F7", 100: "F8",
+    101: "F9", 109: "F10", 103: "F11", 111: "F12",
+    105: "F13", 107: "F14", 113: "F15", 106: "F16", 64: "F17", 79: "F18", 80: "F19",
+    93: "¥", 94: "_", 102: "英数", 104: "かな",
+    65: "Pad .", 67: "Pad *", 69: "Pad +", 75: "Pad /", 78: "Pad -", 81: "Pad =",
+    76: "Enter",
+    82: "Pad 0", 83: "Pad 1", 84: "Pad 2", 85: "Pad 3", 86: "Pad 4", 87: "Pad 5",
+    88: "Pad 6", 89: "Pad 7", 91: "Pad 8", 92: "Pad 9",
+  ]
+}
+
+/// A mouse button (middle or a side button) plus modifier keys, recordable as
+/// a shortcut just like a key combination. Buttons 0/1 (left/right) are never
+/// accepted — a global trigger must not swallow ordinary clicking.
+struct MouseButtonCombo: Equatable, Hashable, Codable {
+  /// AppKit/CGEvent button number: 2 = middle, 3/4 = the usual side buttons.
+  let buttonNumber: Int32
+  let carbonModifiers: UInt32
+
+  var keyLabels: [String] {
+    KeyCombo.modifierSymbols(for: carbonModifiers) + [MouseButtonCombo.buttonName(buttonNumber)]
+  }
+
+  var displayName: String { keyLabels.joined(separator: " ") }
+
+  var isUsableAsGlobalShortcut: Bool { buttonNumber >= 2 }
+
+  var storageString: String { "mouse:\(buttonNumber):\(carbonModifiers)" }
+
+  init(buttonNumber: Int32, carbonModifiers: UInt32) {
+    self.buttonNumber = buttonNumber
+    self.carbonModifiers = carbonModifiers
+  }
+
+  init?(storageString: String) {
+    let parts = storageString.split(separator: ":")
+    guard parts.count == 3, parts[0] == "mouse",
+      let button = Int32(parts[1]),
+      let modifiers = UInt32(parts[2])
+    else { return nil }
+    self.init(buttonNumber: button, carbonModifiers: modifiers)
+  }
+
+  /// Buttons are shown 1-based, matching how mice label them (M3 = middle,
+  /// M4/M5 = side buttons).
+  static func buttonName(_ buttonNumber: Int32) -> String {
+    "M\(buttonNumber + 1)"
+  }
+}
+
+/// Any recordable trigger: a key combination or a mouse button combination.
+/// This is what the settings recorder produces and what the repeat shortcut
+/// stores.
+enum InputCombo: Equatable, Hashable, Codable {
+  case key(KeyCombo)
+  case mouse(MouseButtonCombo)
+
+  var keyLabels: [String] {
+    switch self {
+    case .key(let combo): return combo.keyLabels
+    case .mouse(let combo): return combo.keyLabels
+    }
+  }
+
+  var displayName: String { keyLabels.joined(separator: " ") }
+
+  var isUsableAsGlobalShortcut: Bool {
+    switch self {
+    case .key(let combo): return combo.isUsableAsGlobalShortcut
+    case .mouse(let combo): return combo.isUsableAsGlobalShortcut
+    }
+  }
+
+  /// Key combos keep their bare "keyCode:modifiers" form (the format shipped
+  /// first), mouse combos are prefixed "mouse:button:modifiers".
+  var storageString: String {
+    switch self {
+    case .key(let combo): return combo.storageString
+    case .mouse(let combo): return combo.storageString
+    }
+  }
+
+  init?(storageString: String) {
+    if let mouse = MouseButtonCombo(storageString: storageString) {
+      self = .mouse(mouse)
+    } else if let key = KeyCombo(storageString: storageString) {
+      self = .key(key)
+    } else {
+      return nil
+    }
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.singleValueContainer()
+    let raw = try container.decode(String.self)
+    guard let value = InputCombo(storageString: raw) else {
+      throw DecodingError.dataCorruptedError(
+        in: container, debugDescription: "Unknown input combo: \(raw)")
+    }
+    self = value
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.singleValueContainer()
+    try container.encode(storageString)
+  }
+
+  static let defaultRepeatShortcut = InputCombo.key(.defaultRepeatShortcut)
+}
+
+enum ShortcutChoice: RawRepresentable, Equatable, Hashable, Identifiable, Codable {
   case functionKey
   case optionSpace
   case controlSpace
   case commandShiftSpace
   case controlOptionSpace
+  case custom(InputCombo)
+
+  /// The fixed choices shown in the preset menu (the recorder covers the rest).
+  static let presets: [ShortcutChoice] = [
+    .functionKey, .optionSpace, .controlSpace, .commandShiftSpace, .controlOptionSpace,
+  ]
 
   var id: String { rawValue }
+
+  private static let customPrefix = "custom:"
+
+  var rawValue: String {
+    switch self {
+    case .functionKey: return "functionKey"
+    case .optionSpace: return "optionSpace"
+    case .controlSpace: return "controlSpace"
+    case .commandShiftSpace: return "commandShiftSpace"
+    case .controlOptionSpace: return "controlOptionSpace"
+    case .custom(let input): return Self.customPrefix + input.storageString
+    }
+  }
+
+  init?(rawValue: String) {
+    switch rawValue {
+    case "functionKey": self = .functionKey
+    case "optionSpace": self = .optionSpace
+    case "controlSpace": self = .controlSpace
+    case "commandShiftSpace": self = .commandShiftSpace
+    case "controlOptionSpace": self = .controlOptionSpace
+    default:
+      guard rawValue.hasPrefix(Self.customPrefix),
+        let input = InputCombo(storageString: String(rawValue.dropFirst(Self.customPrefix.count)))
+      else { return nil }
+      self = .custom(input)
+    }
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.singleValueContainer()
+    let raw = try container.decode(String.self)
+    guard let value = ShortcutChoice(rawValue: raw) else {
+      throw DecodingError.dataCorruptedError(
+        in: container, debugDescription: "Unknown shortcut: \(raw)")
+    }
+    self = value
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.singleValueContainer()
+    try container.encode(rawValue)
+  }
+
+  /// The combo registered with Carbon; `nil` for the fn key, which has its own
+  /// event-tap / polling path.
+  var keyCombo: KeyCombo? {
+    switch self {
+    case .functionKey:
+      return nil
+    case .optionSpace:
+      return KeyCombo(keyCode: UInt16(kVK_Space), carbonModifiers: UInt32(optionKey))
+    case .controlSpace:
+      return KeyCombo(keyCode: UInt16(kVK_Space), carbonModifiers: UInt32(controlKey))
+    case .commandShiftSpace:
+      return KeyCombo(keyCode: UInt16(kVK_Space), carbonModifiers: UInt32(cmdKey | shiftKey))
+    case .controlOptionSpace:
+      return KeyCombo(keyCode: UInt16(kVK_Space), carbonModifiers: UInt32(controlKey | optionKey))
+    case .custom(let input):
+      if case .key(let combo) = input { return combo }
+      return nil
+    }
+  }
+
+  /// The recorded trigger in its general form; `nil` only for the fn key.
+  var inputCombo: InputCombo? {
+    switch self {
+    case .functionKey: return nil
+    case .custom(let input): return input
+    default: return keyCombo.map { .key($0) }
+    }
+  }
 
   var keyLabels: [String] {
     switch self {
     case .functionKey: return ["fn"]
-    case .optionSpace: return ["⌥", "Space"]
-    case .controlSpace: return ["⌃", "Space"]
-    case .commandShiftSpace: return ["⌘", "⇧", "Space"]
-    case .controlOptionSpace: return ["⌃", "⌥", "Space"]
+    default: return inputCombo?.keyLabels ?? []
     }
   }
 
@@ -156,6 +437,7 @@ enum ShortcutChoice: String, CaseIterable, Identifiable, Codable {
     keyLabels.joined(separator: " ")
   }
 }
+
 
 struct VoiceLocale: Identifiable, Hashable {
   let identifier: String

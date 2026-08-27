@@ -32,6 +32,7 @@ enum DiagnosticsReport {
       Locale: \(settings.localeIdentifier)
       Shortcut: \(settings.shortcutChoice.displayName)
       Shortcut available: \(yesNo(shortcutAvailable))
+      Repeat shortcut: \(settings.repeatShortcutEnabled ? settings.repeatShortcut.displayName : "off")
       Activation mode: \(settings.activationMode.rawValue)
       Insertion mode: \(settings.insertionMode.rawValue)
       Prefer on-device: \(yesNo(settings.preferOnDevice))

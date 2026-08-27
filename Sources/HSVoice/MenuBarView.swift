@@ -385,6 +385,10 @@ struct AudioLevelView: View {
       }
     }
     .frame(height: 4)
-    .animation(.linear(duration: 0.08), value: level)
+    // A spring rather than .linear: level updates arrive ~30x/s and each one
+    // retargets the running animation. A spring carries the current velocity
+    // into the new target so the bar glides; linear restarted from zero
+    // velocity every update, which read as stepping.
+    .animation(.spring(response: 0.22, dampingFraction: 0.9), value: level)
   }
 }

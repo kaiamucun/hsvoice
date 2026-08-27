@@ -5,6 +5,24 @@ import XCTest
 
 @MainActor
 final class SettingsStoreTests: XCTestCase {
+  func testRepeatShortcutSettingsPersistAcrossRelaunch() {
+    let suiteName = "HSVoiceTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+
+    let first = SettingsStore(defaults: defaults)
+    let combo = InputCombo.mouse(MouseButtonCombo(buttonNumber: 3, carbonModifiers: 0))
+    first.repeatShortcutEnabled = true
+    first.repeatShortcut = combo
+    first.shortcutChoice = .custom(.key(KeyCombo(keyCode: 38, carbonModifiers: 4096)))
+
+    let second = SettingsStore(defaults: defaults)
+    XCTAssertTrue(second.repeatShortcutEnabled)
+    XCTAssertEqual(second.repeatShortcut, combo)
+    XCTAssertEqual(
+      second.shortcutChoice, .custom(.key(KeyCombo(keyCode: 38, carbonModifiers: 4096))))
+  }
+
   func testFreshInstallUsesReadyToSpeakDefaults() {
     let suiteName = "HSVoiceTests.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!
@@ -18,6 +36,8 @@ final class SettingsStoreTests: XCTestCase {
     XCTAssertEqual(settings.activationMode, .hold)
     XCTAssertEqual(settings.insertionMode, .automatic)
     XCTAssertEqual(settings.shortcutChoice, .functionKey)
+    XCTAssertFalse(settings.repeatShortcutEnabled)
+    XCTAssertEqual(settings.repeatShortcut, InputCombo.defaultRepeatShortcut)
     XCTAssertTrue(settings.spokenFormattingCommands)
     XCTAssertFalse(settings.completedOnboarding)
     XCTAssertTrue(settings.soundFeedback)

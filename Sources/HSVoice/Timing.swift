@@ -63,13 +63,24 @@ enum Timing {
   static let recordingTick: TimeInterval = 0.25
 
   /// Audio level is pushed into SwiftUI at most this often. The microphone tap fires
-  /// roughly 47 times a second, and driving an `@Published` property at that rate is
-  /// pure redraw cost for a 4-point-tall meter.
-  static let audioLevelUpdateInterval: TimeInterval = 0.05
+  /// roughly 47 times a second; ~30 updates a second is enough for fluid meter
+  /// motion once the level is envelope-smoothed, while staying below the tap rate.
+  static let audioLevelUpdateInterval: TimeInterval = 1.0 / 30.0
 
   /// Level changes smaller than this are not worth a redraw. Silence therefore costs
-  /// no UI work at all.
-  static let audioLevelSignificantChange = 0.02
+  /// no UI work at all. Small, because the envelope follower below already removes
+  /// buffer-to-buffer jitter — a larger threshold visibly froze the meter between
+  /// updates, which read as stepping.
+  static let audioLevelSignificantChange = 0.005
+
+  /// Attack time constant of the meter's envelope follower: how quickly the shown
+  /// level rises toward a louder input. Short, so speech onsets still feel live.
+  static let audioLevelAttackTime: TimeInterval = 0.05
+
+  /// Release time constant: how quickly the shown level falls back in quiet
+  /// moments. Longer than the attack — that asymmetry is what turns raw RMS
+  /// flicker into a smooth breathing motion.
+  static let audioLevelReleaseTime: TimeInterval = 0.3
 
   // MARK: Status reset
 

@@ -13,6 +13,8 @@ final class SettingsStore: ObservableObject {
     static let insertionMode = "insertionMode"
     static let insertionModeChoiceFinalized = "insertionModeChoiceFinalized"
     static let shortcutChoice = "shortcutChoice"
+    static let repeatShortcutEnabled = "repeatShortcutEnabled"
+    static let repeatShortcut = "repeatShortcut"
     static let customVocabulary = "customVocabulary"
     static let spokenFormattingCommands = "spokenFormattingCommands"
     static let completedOnboarding = "completedOnboarding"
@@ -48,6 +50,16 @@ final class SettingsStore: ObservableObject {
 
   @Published var shortcutChoice: ShortcutChoice {
     didSet { defaults.set(shortcutChoice.rawValue, forKey: Key.shortcutChoice) }
+  }
+
+  /// Whether the global "re-insert the last dictation" shortcut is active.
+  @Published var repeatShortcutEnabled: Bool {
+    didSet { defaults.set(repeatShortcutEnabled, forKey: Key.repeatShortcutEnabled) }
+  }
+
+  /// The key or mouse-button combination that re-inserts the last dictation.
+  @Published var repeatShortcut: InputCombo {
+    didSet { defaults.set(repeatShortcut.storageString, forKey: Key.repeatShortcut) }
   }
 
   @Published var customVocabulary: String {
@@ -109,6 +121,10 @@ final class SettingsStore: ObservableObject {
       InsertionMode(rawValue: defaults.string(forKey: Key.insertionMode) ?? "") ?? .automatic
     shortcutChoice =
       ShortcutChoice(rawValue: defaults.string(forKey: Key.shortcutChoice) ?? "") ?? .functionKey
+    repeatShortcutEnabled = defaults.object(forKey: Key.repeatShortcutEnabled) as? Bool ?? false
+    repeatShortcut =
+      InputCombo(storageString: defaults.string(forKey: Key.repeatShortcut) ?? "")
+      ?? .defaultRepeatShortcut
     customVocabulary = defaults.string(forKey: Key.customVocabulary) ?? ""
     spokenFormattingCommands =
       defaults.object(forKey: Key.spokenFormattingCommands) as? Bool ?? true

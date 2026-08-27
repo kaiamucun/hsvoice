@@ -10,6 +10,14 @@ final class OverlayWindowController {
   private var screenChangeObserver: NSObjectProtocol?
   private var repositionTimer: Timer?
 
+  /// Origin of the glide currently in flight, plus when it lands. The dedup in
+  /// `positionPanel` compares the panel's *actual* frame (so an external move —
+  /// display reconfiguration, an interrupted animation — self-heals on the next
+  /// poll); these only prevent restarting a glide that is already headed to the
+  /// same place.
+  private var glideTargetOrigin: NSPoint?
+  private var glideEndsAt: CFAbsoluteTime = 0
+
   /// Display that most recently contained a text caret. `NSScreen` instances
   /// are recreated on configuration changes, so the stable display ID is stored
   /// instead of a screen object.
@@ -39,6 +47,8 @@ final class OverlayWindowController {
       queue: .main
     ) { [weak self] _ in
       Task { @MainActor [weak self] in
+        // Screen layouts just changed; old coordinates are meaningless, so the
+        // panel snaps to its new place rather than gliding across stale space.
         self?.positionPanel()
       }
     }
@@ -47,7 +57,8 @@ final class OverlayWindowController {
   }
 
   func show() {
-    positionPanel()
+    // Instant placement before the panel is first shown; a glide once visible.
+    positionPanel(animated: panel.isVisible)
     panel.orderFrontRegardless()
   }
 
@@ -60,21 +71,43 @@ final class OverlayWindowController {
   private func installRepositionTimer() {
     let timer = Timer(timeInterval: 1.5, repeats: true) { [weak self] _ in
       Task { @MainActor [weak self] in
-        self?.positionPanel()
+        self?.positionPanel(animated: true)
       }
     }
     repositionTimer = timer
     RunLoop.main.add(timer, forMode: .common)
   }
 
-  private func positionPanel() {
+  private func positionPanel(animated: Bool = false) {
     guard let visibleFrame = activeWorkScreen()?.visibleFrame else { return }
     let origin = NSPoint(
       x: visibleFrame.midX - panel.frame.width / 2,
       y: visibleFrame.minY + 4
     )
-    if abs(panel.frame.origin.x - origin.x) > 0.5 || abs(panel.frame.origin.y - origin.y) > 0.5 {
+    let atTarget =
+      abs(panel.frame.origin.x - origin.x) <= 0.5 && abs(panel.frame.origin.y - origin.y) <= 0.5
+    let glidingThere =
+      CFAbsoluteTimeGetCurrent() < glideEndsAt
+      && glideTargetOrigin.map { abs($0.x - origin.x) <= 0.5 && abs($0.y - origin.y) <= 0.5 }
+        ?? false
+    guard !atTarget, !glidingThere else { return }
+
+    guard animated, panel.isVisible else {
+      glideEndsAt = 0
       panel.setFrameOrigin(origin)
+      return
+    }
+    // Glide instead of teleporting: the indicator follows the user to another
+    // display (or a moved caret) as one continuous motion. The 1.5 s reposition
+    // poll comfortably outlasts the glide, so animations never pile up.
+    let duration = 0.35
+    glideTargetOrigin = origin
+    glideEndsAt = CFAbsoluteTimeGetCurrent() + duration
+    let target = NSRect(origin: origin, size: panel.frame.size)
+    NSAnimationContext.runAnimationGroup { context in
+      context.duration = duration
+      context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+      panel.animator().setFrame(target, display: false)
     }
   }
 

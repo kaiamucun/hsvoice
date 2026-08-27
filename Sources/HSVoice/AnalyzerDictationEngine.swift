@@ -171,8 +171,8 @@ final class AnalyzerDictationEngine {
         continuation.yield(AnalyzerInput(buffer: converted))
       }
       guard let self else { return }
-      let level = AudioLevelMeter.normalizedLevel(from: buffer)
-      guard levelGate.allows(level) else { return }
+      guard let level = levelGate.smoothedLevel(AudioLevelMeter.normalizedLevel(from: buffer))
+      else { return }
       Task { @MainActor in
         guard self.sessionTracker.contains(sessionID) else { return }
         self.onLevel?(level)

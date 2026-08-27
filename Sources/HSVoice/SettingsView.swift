@@ -70,21 +70,88 @@ struct SettingsView: View {
         Text(settings.insertionMode.detail)
           .font(.caption)
           .foregroundStyle(.secondary)
-        Picker(
-          L.t("グローバルショートカット", "Global shortcut", "全局快捷键", "전역 단축키"),
-          selection: Binding(
-            get: { settings.shortcutChoice },
-            set: { model.setShortcut($0) }
+        HStack(alignment: .firstTextBaseline) {
+          Text(L.t("グローバルショートカット", "Global shortcut", "全局快捷键", "전역 단축키"))
+          Spacer()
+          ShortcutRecorderField(
+            keyLabels: settings.shortcutChoice.keyLabels,
+            captureDisabled: model.isCapturingShortcut,
+            isConflicting: { combo in
+              settings.repeatShortcutEnabled && settings.repeatShortcut == combo
+            },
+            onBegin: { model.beginShortcutCapture() },
+            onEnd: { model.endShortcutCapture() },
+            onCapture: { model.setShortcut(.custom($0)) }
           )
-        ) {
-          ForEach(ShortcutChoice.allCases) { shortcut in
-            Text(shortcut.displayName).tag(shortcut)
+          Menu {
+            ForEach(ShortcutChoice.presets) { preset in
+              Button {
+                model.setShortcut(preset)
+              } label: {
+                if settings.shortcutChoice == preset {
+                  Label(preset.displayName, systemImage: "checkmark")
+                } else {
+                  Text(preset.displayName)
+                }
+              }
+            }
+          } label: {
+            Image(systemName: "chevron.up.chevron.down")
           }
+          .fixedSize()
+          .disabled(model.isCapturingShortcut)
+          .help(L.t("プリセットから選ぶ", "Choose a preset", "从预设中选择", "프리셋에서 선택"))
         }
+        Text(
+          L.t(
+            "「変更…」を押して、使いたいキーの組み合わせやマウスボタンをそのまま押すと登録できます（例: ⌘⇧V、マウスのサイドボタン。M3=中央、M4/M5=サイド）。",
+            "Press “Change…”, then type the key combination or click the mouse button you want (e.g. ⌘⇧V, or a side button; M3 = middle, M4/M5 = side).",
+            "点按“更改…”后直接按下想使用的组合键或鼠标按钮即可登记（例如 ⌘⇧V、鼠标侧键。M3=中键、M4/M5=侧键）。",
+            "「변경…」을 누른 뒤 사용할 키 조합이나 마우스 버튼을 그대로 누르면 등록됩니다（예: ⌘⇧V, 마우스 사이드 버튼. M3=가운데, M4/M5=사이드）."))
+          .font(.caption)
+          .foregroundStyle(.secondary)
         if !model.shortcutAvailable {
           Label(shortcutWarning, systemImage: "exclamationmark.triangle")
             .font(.caption)
             .foregroundStyle(.orange)
+        }
+        Toggle(
+          L.t(
+            "前回の音声入力を再入力するショートカットを使う",
+            "Use a shortcut to re-insert the last dictation",
+            "使用快捷键重新输入上次的语音内容",
+            "마지막 음성 입력을 다시 입력하는 단축키 사용"),
+          isOn: Binding(
+            get: { settings.repeatShortcutEnabled },
+            set: { model.setRepeatShortcutEnabled($0) }
+          ))
+          .disabled(model.isCapturingShortcut)
+        if settings.repeatShortcutEnabled {
+          HStack(alignment: .firstTextBaseline) {
+            Text(L.t("再入力ショートカット", "Re-insert shortcut", "重新输入快捷键", "재입력 단축키"))
+            Spacer()
+            ShortcutRecorderField(
+              keyLabels: settings.repeatShortcut.keyLabels,
+              captureDisabled: model.isCapturingShortcut,
+              isConflicting: { combo in settings.shortcutChoice.inputCombo == combo },
+              onBegin: { model.beginShortcutCapture() },
+              onEnd: { model.endShortcutCapture() },
+              onCapture: { model.setRepeatShortcut($0) }
+            )
+          }
+          if !model.repeatShortcutAvailable {
+            Label(repeatShortcutWarning, systemImage: "exclamationmark.triangle")
+              .font(.caption)
+              .foregroundStyle(.orange)
+          }
+          Text(
+            L.t(
+              "最後の音声入力テキストをカーソル位置にもう一度入力します（メニューバーの「直前の入力」の再入力と同じ動作）。",
+              "Types your last dictation at the cursor again (same as re-inserting from “Last dictation” in the menu bar).",
+              "将上次语音输入的文本再次输入到光标位置（与菜单栏“上次输入”的重新输入相同）。",
+              "마지막 음성 입력 텍스트를 커서 위치에 다시 입력합니다（메뉴 막대「마지막 입력」의 재입력과 동일）."))
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
         Toggle(
           L.t("開始・終了のサウンドを再生", "Play start / stop sounds", "播放开始/结束提示音", "시작·종료 사운드 재생"),
@@ -245,6 +312,21 @@ struct SettingsView: View {
       "\(count)/100 terms. Used as recognition hints from the next dictation (classic engine only).",
       "当前\(count)/100条。从下次语音输入起作为识别提示（仅传统引擎）。",
       "현재 \(count)/100개. 다음 음성 입력부터 인식 힌트로 사용됩니다（기존 엔진만）.")
+  }
+
+  private var repeatShortcutWarning: String {
+    if settings.repeatShortcut == settings.shortcutChoice.inputCombo {
+      return L.t(
+        "\(settings.repeatShortcut.displayName)は音声入力の開始に割り当てられています。別の組み合わせを選んでください。",
+        "\(settings.repeatShortcut.displayName) is already assigned to starting dictation. Please pick another combination.",
+        "\(settings.repeatShortcut.displayName)已分配给开始语音输入，请选择其他组合。",
+        "\(settings.repeatShortcut.displayName)은(는) 음성 입력 시작에 할당되어 있습니다. 다른 조합을 선택해 주세요.")
+    }
+    return L.t(
+      "\(settings.repeatShortcut.displayName)は別のアプリで使用されています。別の組み合わせを選んでください。",
+      "\(settings.repeatShortcut.displayName) is taken by another app. Please pick another combination.",
+      "\(settings.repeatShortcut.displayName)已被其他应用占用，请选择其他组合。",
+      "\(settings.repeatShortcut.displayName)은(는) 다른 앱에서 사용 중입니다. 다른 조합을 선택해 주세요.")
   }
 
   private var shortcutWarning: String {
