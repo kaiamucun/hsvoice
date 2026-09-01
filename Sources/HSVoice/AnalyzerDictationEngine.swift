@@ -160,14 +160,17 @@ final class AnalyzerDictationEngine {
     inputContinuation = continuation
 
     let levelGate = AudioLevelGate()
+    let discardGate = InitialAudioDiscardGate(sampleRate: inputFormat.sampleRate)
     let feed = AnalyzerAudioFeed(inputFormat: inputFormat, targetFormat: analyzerFormat)
 
     // The tap runs on the audio thread: it only touches thread-safe locals
-    // (the feed, the stream continuation, the level gate) and hops to the
-    // main actor for UI level updates, mirroring the legacy engine.
+    // (the discard gate, the feed, the stream continuation, the level gate)
+    // and hops to the main actor for UI level updates, mirroring the legacy
+    // engine. The discard gate keeps the shortcut click and the start cue out
+    // of the analyzer; the level meter still sees every buffer.
     inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) {
       [weak self] buffer, _ in
-      if let converted = feed.convert(buffer) {
+      if !discardGate.shouldDiscard(buffer), let converted = feed.convert(buffer) {
         continuation.yield(AnalyzerInput(buffer: converted))
       }
       guard let self else { return }

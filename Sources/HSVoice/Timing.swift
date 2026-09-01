@@ -36,6 +36,19 @@ enum Timing {
   /// stalled session.
   static let analyzerFinalizationDeadline: TimeInterval = 3.0
 
+  // MARK: Recording start
+
+  /// Microphone audio captured during this first slice of a recording is
+  /// discarded instead of being fed to the recognizer. Capture begins the
+  /// instant the shortcut fires, so the first buffers carry the fn key's
+  /// click and the start sound cue — a noise burst that Japanese recognition
+  /// in particular transcribes as hallucinated fragments (「あ」「。」「はい。」)
+  /// glued to the head of every dictation. People need a beat to begin
+  /// speaking after pressing the key, so the window costs no real words;
+  /// the level meter is deliberately not gated, so the UI still reacts
+  /// immediately.
+  static let initialAudioDiscardWindow: TimeInterval = 0.35
+
   // MARK: Text insertion
 
   /// Poll interval while waiting for the target application to come forward.

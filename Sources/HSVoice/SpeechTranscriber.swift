@@ -163,6 +163,37 @@ final class AudioLevelGate: @unchecked Sendable {
   }
 }
 
+/// Drops the first moments of microphone audio so the shortcut key's click and
+/// the start sound cue never reach the recognizer.
+///
+/// Capture starts the instant the shortcut fires, and recognizers — Japanese
+/// models especially — transcribe that initial noise burst as short hallucinated
+/// fragments (「あ」「。」「はい。」) at the head of every dictation. Shared by both
+/// dictation engines; only the recognizer feed is gated, the level meter still
+/// sees every buffer. State is touched exclusively on the audio tap thread.
+final class InitialAudioDiscardGate: @unchecked Sendable {
+  private let discardFrames: Int
+  private var seenFrames = 0
+
+  init(sampleRate: Double, window: TimeInterval = Timing.initialAudioDiscardWindow) {
+    discardFrames = Int(max(0, sampleRate) * max(0, window))
+  }
+
+  /// True while the buffer still falls inside the discard window. The buffer
+  /// containing the boundary is dropped whole — at tap size that costs a few
+  /// milliseconds at most, which is cheaper than splitting a buffer on the
+  /// real-time audio thread.
+  func shouldDiscard(frameCount: Int) -> Bool {
+    guard seenFrames < discardFrames else { return false }
+    seenFrames += frameCount
+    return true
+  }
+
+  func shouldDiscard(_ buffer: AVAudioPCMBuffer) -> Bool {
+    shouldDiscard(frameCount: Int(buffer.frameLength))
+  }
+}
+
 /// Thread-safe holder for the recognition request the audio tap feeds.
 ///
 /// Restarting the recognition task mid-recording (see the early-final handling)
@@ -344,11 +375,14 @@ final class SpeechTranscriber {
     sawResultSinceStop = false
     let sessionID = sessionTracker.begin()
     let levelGate = AudioLevelGate()
+    let discardGate = InitialAudioDiscardGate(sampleRate: format.sampleRate)
     let box = requestBox
 
     inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) {
       [weak self] buffer, _ in
-      box.append(buffer)
+      if !discardGate.shouldDiscard(buffer) {
+        box.append(buffer)
+      }
       guard let self else { return }
       guard let level = levelGate.smoothedLevel(AudioLevelMeter.normalizedLevel(from: buffer))
       else { return }

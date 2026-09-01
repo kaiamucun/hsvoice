@@ -116,3 +116,42 @@ final class TimingBudgetTests: XCTestCase {
     XCTAssertGreaterThan(Timing.functionKeyWatchdogInterval, Timing.functionKeyPollInterval)
   }
 }
+
+
+final class InitialAudioDiscardGateTests: XCTestCase {
+  /// The regression this guards: the fn click and the start sound cue reaching
+  /// the recognizer and being transcribed as 「あ」「。」「はい。」 at the head of
+  /// every dictation.
+  func testDiscardsExactlyTheConfiguredWindow() {
+    // 0.35 s at 48 kHz = 16,800 frames; the tap delivers 1024-frame buffers.
+    let gate = InitialAudioDiscardGate(sampleRate: 48_000, window: 0.35)
+    var discarded = 0
+    while gate.shouldDiscard(frameCount: 1024) {
+      discarded += 1024
+      XCTAssertLessThan(discarded, 48_000, "gate must not discard forever")
+    }
+    // Everything up to the window is dropped (the boundary buffer whole).
+    XCTAssertGreaterThanOrEqual(discarded, 16_800)
+    XCTAssertLessThan(discarded, 16_800 + 1024)
+    // Once open, the gate stays open.
+    XCTAssertFalse(gate.shouldDiscard(frameCount: 1024))
+    XCTAssertFalse(gate.shouldDiscard(frameCount: 1))
+  }
+
+  func testZeroWindowPassesEverythingThrough() {
+    let gate = InitialAudioDiscardGate(sampleRate: 48_000, window: 0)
+    XCTAssertFalse(gate.shouldDiscard(frameCount: 1024))
+  }
+
+  func testInvalidSampleRatePassesEverythingThrough() {
+    let gate = InitialAudioDiscardGate(sampleRate: 0, window: 0.35)
+    XCTAssertFalse(gate.shouldDiscard(frameCount: 1024))
+  }
+
+  /// The window must stay short enough that a fast speaker's first word
+  /// survives, and long enough to cover the click-plus-cue burst.
+  func testWindowBudget() {
+    XCTAssertGreaterThanOrEqual(Timing.initialAudioDiscardWindow, 0.2)
+    XCTAssertLessThanOrEqual(Timing.initialAudioDiscardWindow, 0.5)
+  }
+}
