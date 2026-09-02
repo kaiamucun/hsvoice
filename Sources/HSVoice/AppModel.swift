@@ -45,6 +45,8 @@ final class AppModel: ObservableObject {
   private var cancellables: Set<AnyCancellable> = []
   private var escapeMonitors: [Any] = []
   private var sessionObservers: [NSObjectProtocol] = []
+  /// When the dictation shortcut went down; decides tap vs. hold in `.auto`.
+  private var shortcutPressedAt: Date?
 
   private struct RecordingContext {
     let localeIdentifier: String
@@ -52,6 +54,9 @@ final class AppModel: ObservableObject {
     let keepHistory: Bool
     let aiRefinementEnabled: Bool
     let aiRefinementMode: RefinementMode
+    let aiCustomInstructions: String
+    let vocabularyHints: [String]
+    let replacer: TextReplacer
   }
 
   func startServices() {
@@ -229,16 +234,24 @@ final class AppModel: ObservableObject {
 
   func handleShortcutPressed() {
     guard sessionIsActive else { return }
-    switch settings.activationMode {
-    case .hold:
+    switch ActivationPolicy.onPress(mode: settings.activationMode, isListening: state == .listening)
+    {
+    case .begin:
+      shortcutPressedAt = Date()
       beginListeningIfPossible()
-    case .toggle:
-      toggleListening()
+    case .stop:
+      stopListening()
+    case .none:
+      break
     }
   }
 
   func handleShortcutReleased() {
-    guard settings.activationMode == .hold, state == .listening else { return }
+    let heldFor = shortcutPressedAt.map { Date().timeIntervalSince($0) } ?? 0
+    shortcutPressedAt = nil
+    let action = ActivationPolicy.onRelease(
+      mode: settings.activationMode, isListening: state == .listening, heldFor: heldFor)
+    guard action == .stop else { return }
     stopListening()
   }
 
@@ -444,12 +457,16 @@ final class AppModel: ObservableObject {
     audioLevel = 0
     recordingDuration = 0
     lastOutcome = nil
+    let replacer = settings.makeReplacer()
     recordingContext = RecordingContext(
       localeIdentifier: settings.localeIdentifier,
       spokenFormattingCommands: settings.spokenFormattingCommands,
       keepHistory: settings.keepHistory,
       aiRefinementEnabled: settings.aiRefinementEnabled,
-      aiRefinementMode: settings.aiRefinementMode
+      aiRefinementMode: settings.aiRefinementMode,
+      aiCustomInstructions: settings.aiCustomInstructions,
+      vocabularyHints: settings.vocabularyTerms,
+      replacer: replacer
     )
     if settings.aiRefinementEnabled {
       // Load the model while the user is still speaking, so the refinement
@@ -465,8 +482,9 @@ final class AppModel: ObservableObject {
         vocabulary: settings.vocabularyTerms,
         preferOnDevice: settings.preferOnDevice,
         useAnalyzerEngine: settings.useAnalyzerEngine,
+        inputDeviceUID: settings.preferredInputDeviceUID,
         onPartial: { [weak self] text in
-          self?.partialTranscript = text
+          self?.partialTranscript = replacer.apply(text)
         },
         onLevel: { [weak self] level in
           self?.audioLevel = level
@@ -513,11 +531,12 @@ final class AppModel: ObservableObject {
 
     switch result {
     case .success(let rawText):
-      let text = TextPostProcessor.process(
-        rawText,
-        localeIdentifier: recordingContext.localeIdentifier,
-        spokenCommandsEnabled: recordingContext.spokenFormattingCommands
-      )
+      let text = recordingContext.replacer.apply(
+        TextPostProcessor.process(
+          rawText,
+          localeIdentifier: recordingContext.localeIdentifier,
+          spokenCommandsEnabled: recordingContext.spokenFormattingCommands
+        ))
       guard !text.isEmpty else {
         showError(L.t("音声を認識できませんでした", "Couldn't recognize any speech", "未能识别语音", "음성을 인식하지 못했습니다"))
         scheduleReset(after: Timing.recoverableErrorResetDelay)
@@ -535,7 +554,9 @@ final class AppModel: ObservableObject {
         var finalText = text
         if recordingContext.aiRefinementEnabled,
           let refined = await RefinementService.refine(
-            text, mode: recordingContext.aiRefinementMode)
+            text, mode: recordingContext.aiRefinementMode,
+            customInstructions: recordingContext.aiCustomInstructions,
+            vocabulary: recordingContext.vocabularyHints)
         {
           finalText = refined
         }

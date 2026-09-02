@@ -10,7 +10,7 @@ struct HSVoiceApp: App {
     Window("HS Voice", id: "settings") {
       PrimaryWindowView(model: model)
     }
-    .defaultSize(width: 670, height: 540)
+    .defaultSize(width: 900, height: 640)
     .windowResizability(.contentMinSize)
     .commands {
       HSVoiceCommands()

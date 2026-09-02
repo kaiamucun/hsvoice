@@ -110,7 +110,7 @@ struct OnboardingView: View {
               .keyCap(wide: label == "Space")
           }
           Text(
-            model.settings.activationMode == .hold
+            model.settings.activationMode != .toggle
               ? L.t("を押しながら話します", "— hold it and speak", "按住并说话", "를 누른 채 말하세요")
               : L.t("で録音を開始します", "— press it to start recording", "按下开始录音", "를 눌러 녹음을 시작하세요")
           )

@@ -46,6 +46,64 @@ final class SettingsStoreTests: XCTestCase {
     XCTAssertEqual(settings.aiRefinementMode, .cleanup)
     XCTAssertTrue(settings.showIdleIndicator)
     XCTAssertEqual(settings.appLanguage, .japanese)
+    XCTAssertTrue(settings.dictionaryEntries.isEmpty)
+    XCTAssertTrue(settings.replacementRules.isEmpty)
+    XCTAssertNil(settings.preferredInputDeviceUID)
+    XCTAssertEqual(settings.aiCustomInstructions, "")
+  }
+
+  func testDictionaryReplacementsMicrophoneAndInstructionsPersist() {
+    let suiteName = "HSVoiceTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+
+    let settings = SettingsStore(defaults: defaults)
+    settings.dictionaryEntries = [DictionaryEntry(term: "JOPTGames", spokenForms: "ジョプトゲームズ")]
+    settings.replacementRules = [ReplacementRule(trigger: "仕事メール", replacement: "a@example.com")]
+    settings.preferredInputDeviceUID = "BuiltInMicrophoneDevice"
+    settings.aiCustomInstructions = "箇条書きは使わない"
+
+    let reloaded = SettingsStore(defaults: defaults)
+    XCTAssertEqual(reloaded.dictionaryEntries, settings.dictionaryEntries)
+    XCTAssertEqual(reloaded.replacementRules, settings.replacementRules)
+    XCTAssertEqual(reloaded.preferredInputDeviceUID, "BuiltInMicrophoneDevice")
+    XCTAssertEqual(reloaded.aiCustomInstructions, "箇条書きは使わない")
+    XCTAssertEqual(reloaded.vocabularyTerms, ["JOPTGames"])
+
+    reloaded.preferredInputDeviceUID = nil
+    XCTAssertNil(SettingsStore(defaults: defaults).preferredInputDeviceUID)
+  }
+
+  func testLegacyLineSeparatedVocabularyMigratesIntoDictionaryEntries() {
+    let suiteName = "HSVoiceTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    defaults.set("JOPTGames\nHunterSite, 木村凱亜\n", forKey: "customVocabulary")
+
+    let settings = SettingsStore(defaults: defaults)
+    XCTAssertEqual(settings.dictionaryEntries.map(\.term), ["JOPTGames", "HunterSite", "木村凱亜"])
+    XCTAssertTrue(settings.dictionaryEntries.allSatisfy { $0.spokenForms.isEmpty })
+    // Migrated once: the legacy key is gone and a reload reads the new store.
+    XCTAssertNil(defaults.string(forKey: "customVocabulary"))
+    XCTAssertEqual(SettingsStore(defaults: defaults).dictionaryEntries, settings.dictionaryEntries)
+  }
+
+  func testResetGeneralDefaultsRestoresShippedValues() {
+    let suiteName = "HSVoiceTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+
+    let settings = SettingsStore(defaults: defaults)
+    settings.activationMode = .auto
+    settings.soundFeedback = false
+    settings.showIdleIndicator = false
+    settings.setInsertionMode(.clipboardOnly)
+
+    settings.resetGeneralDefaults()
+    XCTAssertEqual(settings.activationMode, .hold)
+    XCTAssertTrue(settings.soundFeedback)
+    XCTAssertTrue(settings.showIdleIndicator)
+    XCTAssertEqual(settings.insertionMode, .automatic)
   }
 
   func testAppLanguageAndIdleIndicatorPersist() {

@@ -24,6 +24,10 @@ final class SettingsStore: ObservableObject {
     static let showIdleIndicator = "showIdleIndicator"
     static let aiRefinementEnabled = "aiRefinementEnabled"
     static let aiRefinementMode = "aiRefinementMode"
+    static let aiCustomInstructions = "aiCustomInstructions"
+    static let dictionaryEntries = "dictionaryEntries"
+    static let replacementRules = "replacementRules"
+    static let preferredInputDeviceUID = "preferredInputDeviceUID"
   }
 
   private let defaults: UserDefaults
@@ -62,8 +66,25 @@ final class SettingsStore: ObservableObject {
     didSet { defaults.set(repeatShortcut.storageString, forKey: Key.repeatShortcut) }
   }
 
-  @Published var customVocabulary: String {
-    didSet { defaults.set(customVocabulary, forKey: Key.customVocabulary) }
+  /// Names and terms with their misrecognized forms — see `TextReplacer`.
+  @Published var dictionaryEntries: [DictionaryEntry] {
+    didSet { store(dictionaryEntries, forKey: Key.dictionaryEntries) }
+  }
+
+  /// Spoken trigger phrases expanded into longer text — see `TextReplacer`.
+  @Published var replacementRules: [ReplacementRule] {
+    didSet { store(replacementRules, forKey: Key.replacementRules) }
+  }
+
+  /// CoreAudio device UID of the microphone to record from; nil = system default.
+  @Published var preferredInputDeviceUID: String? {
+    didSet {
+      if let preferredInputDeviceUID {
+        defaults.set(preferredInputDeviceUID, forKey: Key.preferredInputDeviceUID)
+      } else {
+        defaults.removeObject(forKey: Key.preferredInputDeviceUID)
+      }
+    }
   }
 
   @Published var spokenFormattingCommands: Bool {
@@ -104,6 +125,11 @@ final class SettingsStore: ObservableObject {
     didSet { defaults.set(aiRefinementMode.rawValue, forKey: Key.aiRefinementMode) }
   }
 
+  /// Free-form style rules appended to the Apple Intelligence instructions.
+  @Published var aiCustomInstructions: String {
+    didSet { defaults.set(aiCustomInstructions, forKey: Key.aiCustomInstructions) }
+  }
+
   @Published private(set) var launchAtLogin: Bool
   @Published private(set) var launchAtLoginError: String?
   @Published var completedOnboarding: Bool {
@@ -125,7 +151,21 @@ final class SettingsStore: ObservableObject {
     repeatShortcut =
       InputCombo(storageString: defaults.string(forKey: Key.repeatShortcut) ?? "")
       ?? .defaultRepeatShortcut
-    customVocabulary = defaults.string(forKey: Key.customVocabulary) ?? ""
+    // The 1.6 dictionary was one term per line; it becomes entries without
+    // spoken forms, so nothing the user typed is lost by the upgrade.
+    let migratedDictionary: [DictionaryEntry]?
+    if let stored: [DictionaryEntry] = Self.decode(from: defaults, key: Key.dictionaryEntries) {
+      dictionaryEntries = stored
+      migratedDictionary = nil
+    } else {
+      let legacy = Self.legacyVocabularyTerms(defaults.string(forKey: Key.customVocabulary) ?? "")
+      let entries = legacy.map { DictionaryEntry(term: $0) }
+      dictionaryEntries = entries
+      migratedDictionary = entries.isEmpty ? nil : entries
+    }
+    replacementRules = Self.decode(from: defaults, key: Key.replacementRules) ?? []
+    preferredInputDeviceUID = defaults.string(forKey: Key.preferredInputDeviceUID)
+    aiCustomInstructions = defaults.string(forKey: Key.aiCustomInstructions) ?? ""
     spokenFormattingCommands =
       defaults.object(forKey: Key.spokenFormattingCommands) as? Bool ?? true
     completedOnboarding = defaults.bool(forKey: Key.completedOnboarding)
@@ -139,15 +179,73 @@ final class SettingsStore: ObservableObject {
       RefinementMode(rawValue: defaults.string(forKey: Key.aiRefinementMode) ?? "") ?? .cleanup
     launchAtLogin = SMAppService.mainApp.status == .enabled
     L.current = appLanguage
+    if let migratedDictionary {
+      store(migratedDictionary, forKey: Key.dictionaryEntries)
+      defaults.removeObject(forKey: Key.customVocabulary)
+    }
   }
 
+  /// Dictionary terms as recognition hints for the classic engine (which caps
+  /// contextual strings at 100) and as spelling hints for AI refinement.
   var vocabularyTerms: [String] {
-    customVocabulary
-      .components(separatedBy: CharacterSet.newlines.union(CharacterSet(charactersIn: ",、")))
-      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+    dictionaryEntries
+      .map(\.trimmedTerm)
       .filter { !$0.isEmpty }
       .prefix(100)
       .map { $0 }
+  }
+
+  /// The corrections to run on every transcript of the next recording.
+  func makeReplacer() -> TextReplacer {
+    TextReplacer(dictionary: dictionaryEntries, replacements: replacementRules)
+  }
+
+  func addDictionaryEntry() -> DictionaryEntry? {
+    guard dictionaryEntries.count < TextReplacer.dictionaryLimit else { return nil }
+    let entry = DictionaryEntry(term: "")
+    dictionaryEntries.append(entry)
+    return entry
+  }
+
+  func removeDictionaryEntry(id: UUID) {
+    dictionaryEntries.removeAll { $0.id == id }
+  }
+
+  @discardableResult
+  func addReplacementRule(trigger: String = "", replacement: String = "") -> ReplacementRule? {
+    guard replacementRules.count < TextReplacer.replacementLimit else { return nil }
+    let rule = ReplacementRule(trigger: trigger, replacement: replacement)
+    replacementRules.append(rule)
+    return rule
+  }
+
+  func removeReplacementRule(id: UUID) {
+    replacementRules.removeAll { $0.id == id }
+  }
+
+  /// "Reset to defaults" for the General page.
+  func resetGeneralDefaults() {
+    activationMode = .hold
+    soundFeedback = true
+    showIdleIndicator = true
+    setInsertionMode(.automatic)
+  }
+
+  private static func legacyVocabularyTerms(_ text: String) -> [String] {
+    text
+      .components(separatedBy: CharacterSet.newlines.union(CharacterSet(charactersIn: ",、")))
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+  }
+
+  private static func decode<T: Decodable>(from defaults: UserDefaults, key: String) -> T? {
+    guard let data = defaults.data(forKey: key) else { return nil }
+    return try? JSONDecoder().decode(T.self, from: data)
+  }
+
+  private func store<T: Encodable>(_ value: T, forKey key: String) {
+    guard let data = try? JSONEncoder().encode(value) else { return }
+    defaults.set(data, forKey: key)
   }
 
   /// Records a deliberate picker choice so a later permission refresh never overrides it.

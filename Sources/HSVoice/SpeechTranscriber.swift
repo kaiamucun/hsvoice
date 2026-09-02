@@ -316,6 +316,7 @@ final class SpeechTranscriber {
     vocabulary: [String],
     preferOnDevice: Bool,
     useAnalyzerEngine: Bool = true,
+    inputDeviceUID: String? = nil,
     onPartial: @escaping (String) -> Void,
     onLevel: @escaping (Double) -> Void,
     onCompletion: @escaping (Result<String, Error>) -> Void
@@ -331,6 +332,7 @@ final class SpeechTranscriber {
       do {
         try analyzerEngine.start(
           localeIdentifier: localeIdentifier,
+          inputDeviceUID: inputDeviceUID,
           onPartial: onPartial,
           onLevel: onLevel,
           onCompletion: onCompletion
@@ -354,6 +356,8 @@ final class SpeechTranscriber {
 
     supportsOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
 
+    // The format follows the device, so the route is set before it is read.
+    AudioInputDevices.apply(preferredUID: inputDeviceUID, to: audioEngine)
     let inputNode = audioEngine.inputNode
     let format = inputNode.outputFormat(forBus: 0)
     guard format.sampleRate > 0, format.channelCount > 0 else {

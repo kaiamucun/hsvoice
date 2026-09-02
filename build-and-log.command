@@ -1,5 +1,5 @@
 #!/bin/bash
-# HS Voice 1.6.2 (build 21): テスト → universalビルド → インストーラ作成 → docs/downloads更新
+# HS Voice 1.7.0 (build 22): テスト → universalビルド → インストーラ作成 → docs/downloads更新
 # 進行状況と結果は tmp/build21.log に記録される (Claude作成)
 set -uo pipefail
 cd "$(dirname "$0")"
@@ -7,7 +7,7 @@ LOG="tmp/build21.log"
 mkdir -p tmp
 rm -f tmp/build21.SUCCESS tmp/build21.FAILED
 {
-  echo "=== HS Voice 1.6.2 build 21: started $(date) ==="
+  echo "=== HS Voice 1.7.0 build 22: started $(date) ==="
   echo "--- swift test ---"
   if ! xcrun swift test 2>&1; then
     echo "=== TESTS FAILED ==="
@@ -31,5 +31,5 @@ rm -f tmp/build21.SUCCESS tmp/build21.FAILED
 } 2>&1 | tee "$LOG"
 if [ -f tmp/build21.SUCCESS ]; then
   killall HSVoice 2>/dev/null || true
-  open "release/HSVoice-1.6.2/HSVoice-Installer-1.6.2.pkg"
+  open "release/HSVoice-1.7.0/HSVoice-Installer-1.7.0.pkg"
 fi

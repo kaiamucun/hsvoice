@@ -124,6 +124,7 @@ final class AnalyzerDictationEngine {
 
   func start(
     localeIdentifier: String,
+    inputDeviceUID: String? = nil,
     onPartial: @escaping (String) -> Void,
     onLevel: @escaping (Double) -> Void,
     onCompletion: @escaping (Result<String, Error>) -> Void
@@ -139,6 +140,7 @@ final class AnalyzerDictationEngine {
     let module = makeModule(locale: Locale(identifier: localeIdentifier))
     let analyzer = SpeechAnalyzer(modules: [module])
 
+    AudioInputDevices.apply(preferredUID: inputDeviceUID, to: audioEngine)
     let inputNode = audioEngine.inputNode
     let inputFormat = inputNode.outputFormat(forBus: 0)
     guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {

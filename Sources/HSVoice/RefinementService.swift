@@ -105,7 +105,10 @@ enum RefinementService {
   /// Returns the refined text, or `nil` when the raw transcript should be used
   /// unchanged (unsupported OS, model unavailable, error, refusal, timeout, or
   /// an input too short to be worth a model call).
-  static func refine(_ text: String, mode: RefinementMode) async -> String? {
+  static func refine(
+    _ text: String, mode: RefinementMode, customInstructions: String = "",
+    vocabulary: [String] = []
+  ) async -> String? {
     #if canImport(FoundationModels)
       guard #available(macOS 26.0, *) else { return nil }
       guard case .available = SystemLanguageModel.default.availability else { return nil }
@@ -118,7 +121,9 @@ enum RefinementService {
 
       return await withTaskGroup(of: String?.self) { group in
         group.addTask {
-          await respond(to: text, mode: effectiveMode)
+          await respond(
+            to: text, mode: effectiveMode, customInstructions: customInstructions,
+            vocabulary: vocabulary)
         }
         group.addTask {
           try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
@@ -136,11 +141,15 @@ enum RefinementService {
 
   #if canImport(FoundationModels)
     @available(macOS 26.0, *)
-    private static func respond(to text: String, mode: RefinementMode) async -> String? {
+    private static func respond(
+      to text: String, mode: RefinementMode, customInstructions: String, vocabulary: [String]
+    ) async -> String? {
       do {
         // A fresh session per request: sessions accumulate their transcript as
         // context, so reuse would let one dictation bleed into the next.
-        let session = LanguageModelSession(instructions: instructions(for: mode))
+        let session = LanguageModelSession(
+          instructions: instructions(
+            for: mode, customInstructions: customInstructions, vocabulary: vocabulary))
         let response = try await session.respond(
           to: "次の文字起こしを処理してください。\n\n\(text)",
           options: GenerationOptions(temperature: 0.1)
@@ -154,7 +163,23 @@ enum RefinementService {
       }
     }
 
-    private static func instructions(for mode: RefinementMode) -> String {
+    /// The mode's base rules, then the dictionary spellings, then the user's own
+    /// instructions last so they take precedence over everything above them.
+    static func instructions(
+      for mode: RefinementMode, customInstructions: String = "", vocabulary: [String] = []
+    ) -> String {
+      var text = baseInstructions(for: mode)
+      if !vocabulary.isEmpty {
+        text += "\n固有名詞・製品名・専門用語は必ず次の表記に合わせる: " + vocabulary.joined(separator: ", ")
+      }
+      let custom = customInstructions.trimmingCharacters(in: .whitespacesAndNewlines)
+      if !custom.isEmpty {
+        text += "\n利用者からの追加指示（上のルールと矛盾する場合はこちらを優先する）:\n" + custom
+      }
+      return text
+    }
+
+    private static func baseInstructions(for mode: RefinementMode) -> String {
       switch mode {
       case .cleanup:
         return """

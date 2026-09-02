@@ -5,6 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 ./scripts/build-installer.sh
 killall HSVoice 2>/dev/null || true
-open "release/HSVoice-1.5.0/HSVoice-Installer-1.5.0.pkg"
+VERSION=$(grep -o "VERSION:-[0-9.]*" scripts/build-installer.sh | head -1 | cut -d- -f2)
+open "release/HSVoice-$VERSION/HSVoice-Installer-$VERSION.pkg"
 echo
 echo "=== ビルド完了。インストーラが開きました ==="

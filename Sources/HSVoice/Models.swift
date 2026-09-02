@@ -75,6 +75,8 @@ enum VoiceOverlayPresentation: Equatable {
 enum ActivationMode: String, CaseIterable, Identifiable, Codable {
   case hold
   case toggle
+  /// Tap for hands-free, hold for push-to-talk — see `ActivationPolicy`.
+  case auto
 
   var id: String { rawValue }
 
@@ -83,6 +85,31 @@ enum ActivationMode: String, CaseIterable, Identifiable, Codable {
     case .hold: return L.t("押している間", "While held down", "按住期间", "누르고 있는 동안")
     case .toggle:
       return L.t("押すたびに開始・停止", "Press to start / stop", "按一次开始，再按停止", "누를 때마다 시작·정지")
+    case .auto:
+      return L.t("自動（短押し／長押し）", "Auto (tap / hold)", "自动（短按／长按）", "자동（짧게／길게）")
+    }
+  }
+
+  var detail: String {
+    switch self {
+    case .hold:
+      return L.t(
+        "キーを押している間だけ録音し、離すと入力します。",
+        "Records only while the key is held; releasing it inserts the text.",
+        "仅在按住按键时录音，松开即输入。",
+        "키를 누르고 있는 동안만 녹음하고, 떼면 입력합니다.")
+    case .toggle:
+      return L.t(
+        "一度押すと録音を開始し、もう一度押すと停止して入力します。",
+        "Press once to start recording, press again to stop and insert.",
+        "按一次开始录音，再按一次停止并输入。",
+        "한 번 누르면 녹음을 시작하고, 다시 누르면 정지하고 입력합니다.")
+    case .auto:
+      return L.t(
+        "短く押すとハンズフリーで録音を続け、もう一度押すと停止します。長押しした場合は離した時点で入力します。",
+        "A quick tap keeps recording hands-free until the next tap. Holding the key records only while held.",
+        "短按后持续免提录音，再按一次停止；长按时松开即输入。",
+        "짧게 누르면 핸즈프리로 계속 녹음하고, 다시 누르면 정지합니다. 길게 누른 경우 떼는 순간 입력합니다.")
     }
   }
 }
