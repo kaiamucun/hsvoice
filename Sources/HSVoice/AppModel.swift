@@ -19,6 +19,10 @@ final class AppModel: ObservableObject {
   /// `endShortcutCapture()`, so nothing can fire — or steal a keyDown from the
   /// recorder — mid-capture.
   @Published private(set) var isCapturingShortcut = false
+  /// False while this login session is switched out (fast user switching).
+  /// A switched-out instance still sees the system-wide fn HID state, so it
+  /// must neither record nor type — see `UserSession`.
+  @Published private(set) var sessionIsActive = true
   @Published private(set) var recordingDuration: TimeInterval = 0
   @Published private(set) var lastErrorMessage: String?
   @Published private(set) var canUndoLastInsertion = false
@@ -40,6 +44,7 @@ final class AppModel: ObservableObject {
   private var insertionTask: Task<Void, Never>?
   private var cancellables: Set<AnyCancellable> = []
   private var escapeMonitors: [Any] = []
+  private var sessionObservers: [NSObjectProtocol] = []
 
   private struct RecordingContext {
     let localeIdentifier: String
@@ -57,8 +62,9 @@ final class AppModel: ObservableObject {
     hotKeyManager.onPressed = { [weak self] in self?.handleShortcutPressed() }
     hotKeyManager.onReleased = { [weak self] in self?.handleShortcutReleased() }
     hotKeyManager.onRepeatPressed = { [weak self] in self?.handleRepeatShortcutPressed() }
-    shortcutAvailable = hotKeyManager.register(settings.shortcutChoice)
-    applyRepeatShortcutRegistration()
+    sessionIsActive = UserSession.isOnConsole()
+    observeSessionActivity()
+    applyShortcutRegistrations()
     observeLanguageChanges()
     OverlayWindowController.shared.show()
   }
@@ -95,6 +101,52 @@ final class AppModel: ObservableObject {
       .store(in: &cancellables)
   }
 
+  /// Fast user switching: a switched-out session keeps running, and the fn
+  /// HID poll is system-wide, so without this an instance in another account
+  /// records the same dictation and types it a second time.
+  private func observeSessionActivity() {
+    let center = NSWorkspace.shared.notificationCenter
+    sessionObservers.append(
+      center.addObserver(
+        forName: NSWorkspace.sessionDidResignActiveNotification, object: nil, queue: .main
+      ) { [weak self] _ in
+        Task { @MainActor in self?.handleSessionResignedActive() }
+      })
+    sessionObservers.append(
+      center.addObserver(
+        forName: NSWorkspace.sessionDidBecomeActiveNotification, object: nil, queue: .main
+      ) { [weak self] _ in
+        Task { @MainActor in self?.handleSessionBecameActive() }
+      })
+  }
+
+  private func handleSessionResignedActive() {
+    sessionIsActive = false
+    // A recording in flight belongs to the session the user just left;
+    // finishing it would type into whatever the other account has focused.
+    cancelListening()
+    hotKeyManager.suspendRegistrations()
+  }
+
+  private func handleSessionBecameActive() {
+    sessionIsActive = true
+    applyShortcutRegistrations()
+  }
+
+  /// The one place both global shortcuts are (re)registered. They are live
+  /// only while this session is on the console and no recorder is capturing.
+  private func applyShortcutRegistrations() {
+    guard
+      ShortcutRegistrationPolicy.shouldRegister(
+        sessionIsActive: sessionIsActive, isCapturingShortcut: isCapturingShortcut)
+    else {
+      hotKeyManager.suspendRegistrations()
+      return
+    }
+    shortcutAvailable = hotKeyManager.register(settings.shortcutChoice)
+    applyRepeatShortcutRegistration()
+  }
+
   func setShortcut(_ shortcut: ShortcutChoice) {
     guard isCapturingShortcut || state.allowsConfigurationChanges else { return }
     // A recorded combo that matches a preset becomes that preset, so the
@@ -107,11 +159,10 @@ final class AppModel: ObservableObject {
     }
     settings.shortcutChoice = resolved
     guard !isCapturingShortcut else { return }  // registered in endShortcutCapture
-    shortcutAvailable = hotKeyManager.register(resolved)
     // The dictation shortcut wins a collision: re-evaluate the repeat shortcut
     // so a now-conflicting one is unregistered and flagged instead of
     // double-firing (Carbon happily registers the same combo twice).
-    applyRepeatShortcutRegistration()
+    applyShortcutRegistrations()
   }
 
   func setRepeatShortcutEnabled(_ enabled: Bool) {
@@ -129,6 +180,10 @@ final class AppModel: ObservableObject {
   }
 
   private func applyRepeatShortcutRegistration() {
+    guard sessionIsActive else {
+      hotKeyManager.unregisterRepeatShortcut()
+      return
+    }
     guard settings.repeatShortcutEnabled else {
       hotKeyManager.unregisterRepeatShortcut()
       repeatShortcutAvailable = true
@@ -154,15 +209,14 @@ final class AppModel: ObservableObject {
 
   func endShortcutCapture() {
     isCapturingShortcut = false
-    shortcutAvailable = hotKeyManager.register(settings.shortcutChoice)
-    applyRepeatShortcutRegistration()
+    applyShortcutRegistrations()
   }
 
   /// Global shortcut: type the last dictation again at the current cursor.
   /// Falls back to the newest history entry after a relaunch (history is only
   /// recorded when the user has opted in).
   func handleRepeatShortcutPressed() {
-    guard state.allowsConfigurationChanges else { return }
+    guard sessionIsActive, state.allowsConfigurationChanges else { return }
     let text = lastTranscript.isEmpty ? (history.entries.first?.text ?? "") : lastTranscript
     guard !text.isEmpty else { return }
     insertText(text)
@@ -174,6 +228,7 @@ final class AppModel: ObservableObject {
   }
 
   func handleShortcutPressed() {
+    guard sessionIsActive else { return }
     switch settings.activationMode {
     case .hold:
       beginListeningIfPossible()
@@ -265,7 +320,8 @@ final class AppModel: ObservableObject {
       shortcutAvailable: shortcutAvailable,
       lastError: lastErrorMessage,
       lastEngine: transcriber.lastUsedEngine?.rawValue,
-      fnDebug: hotKeyManager.fnDebugSnapshot
+      fnDebug: hotKeyManager.fnDebugSnapshot,
+      sessionOnConsole: sessionIsActive
     )
     NSPasteboard.general.clearContents()
     NSPasteboard.general.setString(report, forType: .string)
@@ -334,7 +390,10 @@ final class AppModel: ObservableObject {
     // anything, so this is what actually warms the recognizer for the very first
     // dictation after onboarding.
     prewarmRecognizerIfPossible()
-    if settings.shortcutChoice == .functionKey, state.allowsConfigurationChanges {
+    if settings.shortcutChoice == .functionKey, state.allowsConfigurationChanges,
+      ShortcutRegistrationPolicy.shouldRegister(
+        sessionIsActive: sessionIsActive, isCapturingShortcut: isCapturingShortcut)
+    {
       shortcutAvailable = hotKeyManager.register(settings.shortcutChoice)
     }
     // A fresh Accessibility grant lets a mouse trigger's consuming tap replace

@@ -9,7 +9,8 @@ enum DiagnosticsReport {
     shortcutAvailable: Bool,
     lastError: String?,
     lastEngine: String? = nil,
-    fnDebug: String? = nil
+    fnDebug: String? = nil,
+    sessionOnConsole: Bool? = nil
   ) -> String {
     let bundle = Bundle.main
     let version =
@@ -51,6 +52,7 @@ enum DiagnosticsReport {
       Launch at login: \(yesNo(settings.launchAtLogin))
       Last error: \(errorLine)
       Fn debug: \(fnDebug ?? "n/a")
+      Session on console: \(sessionOnConsole.map(yesNo) ?? "n/a")
 
       Privacy: This report never includes dictated text, audio, custom vocabulary, user name, or device name.
       """
