@@ -58,7 +58,9 @@ extension AppModel {
       }
         ?? L.t("録音中", "Recording", "录音中", "녹음 중") + " • \(formattedRecordingDuration)"
     case .processing:
-      return L.t("句読点と空白を整えています", "Tidying punctuation and spacing", "正在整理标点与空格", "문장 부호와 공백을 정리 중")
+      return isRefining
+        ? L.t("端末内AIで文章を整えています", "Polishing with on-device AI", "正在用设备端AI润色", "온디바이스 AI로 문장 다듬는 중")
+        : L.t("入力する文章を準備しています", "Preparing text for insertion", "正在准备输入文本", "입력할 문장을 준비 중")
     case .success(let message), .error(let message):
       return message
     }

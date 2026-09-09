@@ -321,10 +321,10 @@ struct AISettingsPage: View {
                 "入力前にAIで文章を仕上げる", "Polish text with AI before inserting",
                 "输入前用AI润色文本", "입력 전에 AI로 문장 다듬기"),
               detail: L.t(
-                "Apple Intelligenceがフィラーを取り除き、読みやすい文章に整えます。処理はこのMacの中だけで行われます。",
-                "Apple Intelligence removes fillers and tidies the text. Processing happens entirely on this Mac.",
-                "Apple Intelligence会去除口头语并整理文本。处理完全在这台Mac上进行。",
-                "Apple Intelligence가 군말을 제거하고 읽기 쉬운 문장으로 정리합니다. 처리는 이 Mac 안에서만 이루어집니다."))
+                "APIキー不要。Apple Intelligenceが短い発言や言い直しを整えます。文章と入力先のアプリ名を、このMac内だけで処理します。",
+                "No API key needed. Apple Intelligence polishes short phrases and self-corrections. Text and the destination app name are processed only on this Mac.",
+                "无需API密钥。Apple Intelligence会润色简短发言和改口。文本与目标应用名称仅在这台Mac上处理。",
+                "API 키 없이 짧은 말과 정정 표현을 다듬습니다. 문장과 입력 대상 앱 이름은 이 Mac 안에서만 처리합니다."))
           }
           if settings.aiRefinementEnabled {
             Picker(selection: $settings.aiRefinementMode) {
@@ -338,6 +338,9 @@ struct AISettingsPage: View {
             }
           }
           SettingCaption(refinementCaption, isWarning: refinementCaptionIsWarning)
+          if let status = model.lastRefinementStatus {
+            SettingCaption(status.message, isWarning: status.usedOriginalText)
+          }
         } else {
           SettingCaption(
             L.t(
@@ -368,10 +371,18 @@ struct AISettingsPage: View {
         }
         SettingCaption(
           L.t(
-            "文体や書式の好みを自由に書けます。AI整形が有効なときに、上のルールより優先して適用されます。辞書の「正しい表記」も自動でAIに伝えます。",
-            "Describe the tone and formatting you want. Applied on top of the mode's rules whenever AI polish is on. Dictionary spellings are passed to the model automatically.",
-            "可自由描述文体和格式偏好。开启AI润色时，优先于上面的规则应用。词典中的“正确写法”也会自动传给AI。",
-            "문체와 서식 취향을 자유롭게 적을 수 있습니다. AI 다듬기가 켜져 있을 때 위 규칙보다 우선 적용됩니다. 사전의 「올바른 표기」도 자동으로 AI에 전달됩니다."))
+            "文体や書式の好みを指定できます。事実や依頼の意図を保ちながら適用します。入力先のアプリ名と辞書も参考にします。",
+            "Set tone and formatting preferences while preserving facts and intent. The destination app name and dictionary also guide the result.",
+            "可指定文体和格式，同时保留事实与原意。目标应用名称和词典也会作为参考。",
+            "사실과 의도를 유지하면서 문체와 서식 취향을 반영합니다. 입력 대상 앱 이름과 사전도 참고합니다."))
+        SettingCaption(
+          L.t(
+            "目安は日本語で約300文字まで。長すぎる指示は保存できますが、短くするまでAI整形を実行しません。",
+            "Keep instructions brief (about 300 Japanese characters). Longer instructions are saved, but text is inserted without AI polish until you shorten them.",
+            "上限约为300个日文字符（900字节）。过长的指令会保存，但缩短前不会执行AI润色。",
+            "일본어 약 300자（900바이트）까지입니다. 긴 지침은 저장되지만 줄이기 전에는 AI 다듬기를 실행하지 않습니다."),
+          isWarning: settings.aiCustomInstructions.trimmingCharacters(in: .whitespacesAndNewlines)
+            .utf8.count > RefinementService.maxCustomInstructionBytes)
       }
       .disabled(!model.refinementSupported)
     }
@@ -382,10 +393,10 @@ struct AISettingsPage: View {
     switch RefinementService.availability() {
     case .available:
       return L.t(
-        "AI処理の分だけ、入力までに数秒かかることがあります。うまく仕上がらなかった場合は認識したままの文章を入力します。",
-        "AI adds a few seconds before insertion; if it can't improve the text, the raw transcript is inserted.",
-        "AI处理会使输入多花几秒；若处理不理想，将输入原始识别文本。",
-        "AI 처리만큼 입력까지 몇 초 걸릴 수 있으며, 잘 다듬지 못한 경우 인식된 원문을 입력합니다.")
+        "AI処理には時間がかかる場合があります。処理に失敗した場合は認識した文章を入力し、結果をここに表示します。",
+        "AI processing may take a few seconds. If it fails, the original transcript is inserted and the status appears here.",
+        "AI处理可能需要几秒。失败时会输入原始识别文本，并在此显示状态。",
+        "AI 처리에 몇 초 걸릴 수 있습니다. 실패하면 인식된 원문을 입력하고 여기에 상태를 표시합니다.")
     case .appleIntelligenceOff:
       return L.t(
         "システム設定でApple Intelligenceをオンにすると使用できます。オンになるまでは認識したままの文章を入力します。",

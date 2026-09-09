@@ -142,7 +142,7 @@ final class AnalyzerDictationEngine {
 
     AudioInputDevices.apply(preferredUID: inputDeviceUID, to: audioEngine)
     let inputNode = audioEngine.inputNode
-    let inputFormat = inputNode.outputFormat(forBus: 0)
+    let inputFormat = AudioInputDevices.captureFormat(of: audioEngine)
     guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
       throw EngineError.invalidAudioInput
     }

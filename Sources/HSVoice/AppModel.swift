@@ -11,6 +11,8 @@ final class AppModel: ObservableObject {
   @Published private(set) var audioLevel = 0.0
   @Published private(set) var lastTranscript = ""
   @Published private(set) var lastOutcome: TextInsertionOutcome?
+  @Published private(set) var isRefining = false
+  @Published private(set) var lastRefinementStatus: RefinementStatus?
   @Published private(set) var targetApplicationName: String?
   @Published private(set) var shortcutAvailable = true
   @Published private(set) var repeatShortcutAvailable = true
@@ -275,6 +277,8 @@ final class AppModel: ObservableObject {
     // typed into whatever has focus later.
     insertionTask?.cancel()
     insertionTask = nil
+    if isRefining { lastRefinementStatus = .cancelled }
+    isRefining = false
     stopRecordingTimer(resetDuration: true)
     partialTranscript = ""
     audioLevel = 0
@@ -334,7 +338,8 @@ final class AppModel: ObservableObject {
       lastError: lastErrorMessage,
       lastEngine: transcriber.lastUsedEngine?.rawValue,
       fnDebug: hotKeyManager.fnDebugSnapshot,
-      sessionOnConsole: sessionIsActive
+      sessionOnConsole: sessionIsActive,
+      lastRefinementStatus: lastRefinementStatus
     )
     NSPasteboard.general.clearContents()
     NSPasteboard.general.setString(report, forType: .string)
@@ -457,6 +462,8 @@ final class AppModel: ObservableObject {
     audioLevel = 0
     recordingDuration = 0
     lastOutcome = nil
+    isRefining = false
+    lastRefinementStatus = nil
     let replacer = settings.makeReplacer()
     recordingContext = RecordingContext(
       localeIdentifier: settings.localeIdentifier,
@@ -508,7 +515,6 @@ final class AppModel: ObservableObject {
 
   private func stopListening() {
     guard state == .listening else { return }
-    removeEscapeMonitors()
     stopRecordingTimer()
     state = .processing
     audioLevel = 0
@@ -517,10 +523,8 @@ final class AppModel: ObservableObject {
   }
 
   private func completeTranscription(_ result: Result<String, Error>) {
-    // A session can complete while still `.listening` (recognizer error,
-    // early final result), which skips `stopListening()` — the monitors must
-    // never outlive the recording.
-    removeEscapeMonitors()
+    // Keep Escape active during AI refinement. Remove its monitors before
+    // insertion or on an earlier terminal path, including recognition errors.
     stopRecordingTimer()
     guard let recordingContext else { return }
     self.recordingContext = nil
@@ -538,6 +542,7 @@ final class AppModel: ObservableObject {
           spokenCommandsEnabled: recordingContext.spokenFormattingCommands
         ))
       guard !text.isEmpty else {
+        removeEscapeMonitors()
         showError(L.t("音声を認識できませんでした", "Couldn't recognize any speech", "未能识别语音", "음성을 인식하지 못했습니다"))
         scheduleReset(after: Timing.recoverableErrorResetDelay)
         return
@@ -551,14 +556,21 @@ final class AppModel: ObservableObject {
       let insertionTarget = target
       let applicationName = targetApplicationName
       insertionTask = Task {
+        // Cancellation can happen before this queued MainActor task starts.
+        // A discarded request must not change a later recording's UI state.
+        guard !Task.isCancelled else { return }
         var finalText = text
-        if recordingContext.aiRefinementEnabled,
-          let refined = await RefinementService.refine(
+        if recordingContext.aiRefinementEnabled {
+          isRefining = true
+          let result = await RefinementService.refineWithResult(
             text, mode: recordingContext.aiRefinementMode,
             customInstructions: recordingContext.aiCustomInstructions,
-            vocabulary: recordingContext.vocabularyHints)
-        {
-          finalText = refined
+            vocabulary: recordingContext.vocabularyHints,
+            applicationName: applicationName)
+          guard !Task.isCancelled else { return }
+          isRefining = false
+          lastRefinementStatus = result.status
+          finalText = result.text ?? text
         }
         // Cancelled while the model was working — the user discarded this
         // dictation, so nothing may be inserted or recorded.
@@ -574,6 +586,7 @@ final class AppModel: ObservableObject {
             )
           )
         }
+        removeEscapeMonitors()
         let outcome = await insertionService.insert(finalText, into: insertionTarget)
         // A cancel that raced the insert itself must not flip the reset UI
         // back into a success state.
@@ -583,6 +596,7 @@ final class AppModel: ObservableObject {
       }
 
     case .failure(let error):
+      removeEscapeMonitors()
       showError(readableRecognitionError(error))
       scheduleReset(after: Timing.recognitionErrorResetDelay)
     }
@@ -598,6 +612,7 @@ final class AppModel: ObservableObject {
   }
 
   private func finishInsertion(_ outcome: TextInsertionOutcome, target: AppTarget?) {
+    removeEscapeMonitors()
     var outcome = outcome
     // The service reports .copiedOnly when it had no target to type into, but in
     // automatic mode with the Accessibility grant missing the real story is the
@@ -740,29 +755,37 @@ final class AppModel: ObservableObject {
 
   // MARK: Escape to cancel
 
-  /// While recording, esc discards the dictation without inserting anything.
+  /// Escape discards recording or in-flight refinement before insertion.
   private func installEscapeMonitors() {
     guard escapeMonitors.isEmpty else { return }
 
-    if let local = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: {
-      [weak self] event in
-      guard let self, event.keyCode == 53, self.state == .listening else { return event }
-      self.cancelListening()
-      return nil
-    }) {
+    if let local = NSEvent.addLocalMonitorForEvents(
+      matching: .keyDown,
+      handler: {
+        [weak self] event in
+        guard let self, event.keyCode == 53,
+          self.state == .listening || self.isRefining
+        else { return event }
+        self.cancelListening()
+        return nil
+      })
+    {
       escapeMonitors.append(local)
     }
 
     // The global monitor only receives events when Accessibility is granted;
     // without it, esc still works whenever HS Voice itself has focus.
-    if let global = NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: {
-      [weak self] event in
-      guard event.keyCode == 53 else { return }
-      Task { @MainActor in
-        guard let self, self.state == .listening else { return }
-        self.cancelListening()
-      }
-    }) {
+    if let global = NSEvent.addGlobalMonitorForEvents(
+      matching: .keyDown,
+      handler: {
+        [weak self] event in
+        guard event.keyCode == 53 else { return }
+        Task { @MainActor in
+          guard let self, self.state == .listening || self.isRefining else { return }
+          self.cancelListening()
+        }
+      })
+    {
       escapeMonitors.append(global)
     }
   }

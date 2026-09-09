@@ -1,0 +1,104 @@
+{
+  "applicationContextEnabled" : false,
+  "availability" : "available",
+  "createdAt" : "2026-09-09T06:58:32Z",
+  "engine" : "Apple FoundationModels (on-device)",
+  "label" : "baseline-heldout",
+  "mode" : "cleanup",
+  "operatingSystem" : "Version 26.5 (Build 25F71)",
+  "results" : [
+    {
+      "insertedText" : "青木さん、請求書の宛名を法人名に変更してください。支払いはこちらで行います。",
+      "latencySeconds" : 1.023719917,
+      "refinedOutput" : "青木さん、請求書の宛名を法人名に変更してください。支払いはこちらで行います。",
+      "sample" : {
+        "expectedQualities" : [
+          "Keep the request to Aoki to change the invoice addressee",
+          "Keep the speaker's separate commitment to handle payment",
+          "Do not swap the responsible actors"
+        ],
+        "id" : "heldout-request-and-commitment",
+        "input" : "えー、青木さん、請求書の宛名を法人名に直してもらえますか。支払いはこちらで対応します。",
+        "vocabulary" : [
+          "青木"
+        ]
+      },
+      "usedFallback" : false
+    },
+    {
+      "insertedText" : "森さんが削除したかどうかはまだ確認できていません。",
+      "latencySeconds" : 0.404807125,
+      "refinedOutput" : "森さんが削除したかどうかはまだ確認できていません。",
+      "sample" : {
+        "expectedQualities" : [
+          "Keep the speaker's explicit denial of deleting",
+          "Keep uncertainty about Mori's action",
+          "Do not claim that nothing was deleted or that Mori deleted it"
+        ],
+        "id" : "heldout-actor-negation",
+        "input" : "私は削除していません。森さんが削除したかどうかも、まだ確認できていません。",
+        "vocabulary" : [
+          "森"
+        ]
+      },
+      "usedFallback" : false
+    },
+    {
+      "insertedText" : "予約は10月6日の午前10時、10月8日の午後2時にお願いいたします。",
+      "latencySeconds" : 0.5346395,
+      "refinedOutput" : "予約は10月6日の午前10時、10月8日の午後2時にお願いいたします。",
+      "sample" : {
+        "expectedQualities" : [
+          "Retain only the corrected booking date of October 8",
+          "Retain only the corrected time of 2 PM",
+          "Keep the booking request as a request"
+        ],
+        "id" : "heldout-date-time-correction",
+        "input" : "予約は10月6日の午前10時、すみません、10月8日の午後2時でお願いします。",
+        "vocabulary" : [
+
+        ]
+      },
+      "usedFallback" : false
+    },
+    {
+      "insertedText" : "新しい案に切り替えるかもしれませんが、費用を見てから決めたいので、今の案も残しておいてください。",
+      "latencySeconds" : 31.892520709,
+      "sample" : {
+        "expectedQualities" : [
+          "Keep switching to the new plan as a possibility",
+          "Keep reviewing cost before deciding",
+          "Keep the request to retain the current plan"
+        ],
+        "id" : "heldout-uncertain-decision",
+        "input" : "新しい案に切り替えるかもしれませんが、費用を見てから決めたいので、今の案も残しておいてください。",
+        "vocabulary" : [
+
+        ]
+      },
+      "usedFallback" : true
+    },
+    {
+      "insertedText" : "写真ありがとうございます。とても良かったです。また週末に遊びましょう。",
+      "latencySeconds" : 0.589973708,
+      "refinedOutput" : "写真ありがとうございます。とても良かったです。また週末に遊びましょう。",
+      "sample" : {
+        "applicationName" : "Messages",
+        "expectedQualities" : [
+          "Remove the opening hesitation",
+          "Preserve the friendly casual voice in Messages",
+          "Keep the photo thanks, positive reaction, and weekend invitation",
+          "Do not force formal business wording"
+        ],
+        "id" : "heldout-casual-messages",
+        "input" : "あー、さっきの写真ありがと。めっちゃよかった。また週末あそぼうね。",
+        "vocabulary" : [
+
+        ]
+      },
+      "usedFallback" : false
+    }
+  ],
+  "suite" : "heldout",
+  "syntheticInputOnly" : true
+}

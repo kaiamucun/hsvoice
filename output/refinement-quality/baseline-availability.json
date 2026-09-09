@@ -1,0 +1,12 @@
+{
+  "availability" : "available",
+  "createdAt" : "2026-09-09T06:56:09Z",
+  "engine" : "Apple FoundationModels (on-device)",
+  "label" : "baseline-availability",
+  "mode" : "cleanup",
+  "operatingSystem" : "Version 26.5 (Build 25F71)",
+  "results" : [
+
+  ],
+  "syntheticInputOnly" : true
+}

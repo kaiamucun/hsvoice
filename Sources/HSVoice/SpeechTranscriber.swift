@@ -359,7 +359,7 @@ final class SpeechTranscriber {
     // The format follows the device, so the route is set before it is read.
     AudioInputDevices.apply(preferredUID: inputDeviceUID, to: audioEngine)
     let inputNode = audioEngine.inputNode
-    let format = inputNode.outputFormat(forBus: 0)
+    let format = AudioInputDevices.captureFormat(of: audioEngine)
     guard format.sampleRate > 0, format.channelCount > 0 else {
       throw SpeechTranscriberError.invalidAudioInput
     }

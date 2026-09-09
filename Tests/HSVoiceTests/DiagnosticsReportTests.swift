@@ -23,7 +23,8 @@ final class DiagnosticsReportTests: XCTestCase {
       permissions: PermissionsManager(),
       shortcutAvailable: true,
       lastError: "network unavailable",
-      lastEngine: "SpeechAnalyzer"
+      lastEngine: "SpeechAnalyzer",
+      lastRefinementStatus: .timedOut
     )
 
     XCTAssertFalse(report.contains("CONFIDENTIAL-PRODUCT-CODENAME"))
@@ -35,5 +36,6 @@ final class DiagnosticsReportTests: XCTestCase {
     XCTAssertTrue(report.contains("Last error: network unavailable"))
     XCTAssertTrue(report.contains("Insertion mode: clipboardOnly"))
     XCTAssertTrue(report.contains("Last engine used: SpeechAnalyzer"))
+    XCTAssertTrue(report.contains("Last refinement: timed_out"))
   }
 }

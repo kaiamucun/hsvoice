@@ -70,6 +70,21 @@ enum AudioInputDevices {
     return status == noErr
   }
 
+  /// The format the engine's input node captures in right now; hand this to
+  /// the tap, and read it after `apply`.
+  ///
+  /// AVAudioEngine only follows device changes it made itself. When `apply`
+  /// re-routes the input unit underneath it, the node's input side reflects
+  /// the new hardware format at once, but `outputFormat(forBus:)` keeps the
+  /// format of the device the engine started on (its default-device aggregate,
+  /// whose rate follows the *output* device — 44.1 kHz speakers with a 48 kHz
+  /// microphone is enough to differ). A tap installed with that stale format is
+  /// silently skipped while a configuration change is pending, and the next
+  /// session raises `Failed to create tap due to format mismatch` (1.7.0 crash).
+  static func captureFormat(of engine: AVAudioEngine) -> AVAudioFormat {
+    engine.inputNode.inputFormat(forBus: 0)
+  }
+
   private static func inputChannelCount(of identifier: AudioDeviceID) -> Int {
     var address = AudioObjectPropertyAddress(
       mSelector: kAudioDevicePropertyStreamConfiguration,
@@ -123,7 +138,7 @@ final class MicrophoneLevelProbe: ObservableObject {
     let engine = AVAudioEngine()
     AudioInputDevices.apply(preferredUID: preferredUID, to: engine)
     let input = engine.inputNode
-    let format = input.outputFormat(forBus: 0)
+    let format = AudioInputDevices.captureFormat(of: engine)
     guard format.sampleRate > 0, format.channelCount > 0 else {
       errorMessage = L.t(
         "マイクの入力形式を取得できませんでした。", "Couldn't read the microphone's input format.",

@@ -1,0 +1,68 @@
+{
+  "applicationContextEnabled" : false,
+  "availability" : "available",
+  "createdAt" : "2026-09-09T07:00:57Z",
+  "engine" : "Apple FoundationModels (on-device)",
+  "label" : "baseline-final",
+  "mode" : "cleanup",
+  "operatingSystem" : "Version 26.5 (Build 25F71)",
+  "results" : [
+    {
+      "insertedText" : "納品数は28個をお願いします。",
+      "latencySeconds" : 0.851609792,
+      "refinedOutput" : "納品数は28個をお願いします。",
+      "sample" : {
+        "expectedQualities" : [
+          "Keep only the corrected quantity of 28 items",
+          "Remove the superseded 18 and correction phrase",
+          "Preserve the delivery quantity request"
+        ],
+        "id" : "final-corrected-quantity",
+        "input" : "納品数は18個、違います、28個でお願いします。",
+        "vocabulary" : [
+
+        ]
+      },
+      "usedFallback" : false
+    },
+    {
+      "insertedText" : "昨日のデモのリンクをもう一度送っていただけますか。",
+      "latencySeconds" : 0.454431542,
+      "refinedOutput" : "昨日のデモのリンクをもう一度送っていただけますか。",
+      "sample" : {
+        "expectedQualities" : [
+          "Remove both hesitation fillers",
+          "Keep yesterday's demo, the link, and the repeat-send request",
+          "Preserve the polite request rather than making a promise"
+        ],
+        "id" : "final-fillers-polite-request",
+        "input" : "えっと、昨日のデモのリンクを、あの、もう一度送っていただけますか。",
+        "vocabulary" : [
+
+        ]
+      },
+      "usedFallback" : false
+    },
+    {
+      "insertedText" : "在庫を確認してください。発注前に、対象は青いケーブルです。",
+      "latencySeconds" : 0.449380833,
+      "refinedOutput" : "在庫を確認してください。発注前に、対象は青いケーブルです。",
+      "sample" : {
+        "expectedQualities" : [
+          "Connect the fragments into a natural request",
+          "Keep checking inventory before ordering",
+          "Keep blue cables as the subject",
+          "Do not invent an order placement or change who must check"
+        ],
+        "id" : "final-disordered-clauses",
+        "input" : "在庫を確認してください。発注の前に。対象は青いケーブルです。",
+        "vocabulary" : [
+
+        ]
+      },
+      "usedFallback" : false
+    }
+  ],
+  "suite" : "final",
+  "syntheticInputOnly" : true
+}

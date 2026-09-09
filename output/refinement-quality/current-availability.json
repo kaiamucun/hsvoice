@@ -1,0 +1,14 @@
+{
+  "applicationContextEnabled" : true,
+  "availability" : "available",
+  "createdAt" : "2026-09-09T07:02:57Z",
+  "engine" : "Apple FoundationModels (on-device)",
+  "label" : "current-availability",
+  "mode" : "cleanup",
+  "operatingSystem" : "Version 26.5 (Build 25F71)",
+  "results" : [
+
+  ],
+  "suite" : "baseline",
+  "syntheticInputOnly" : true
+}

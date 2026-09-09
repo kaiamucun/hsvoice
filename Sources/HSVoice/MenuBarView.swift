@@ -150,6 +150,13 @@ struct MenuBarView: View {
         .lineLimit(3)
         .textSelection(.enabled)
 
+      if let status = model.lastRefinementStatus {
+        Text(status.message)
+          .font(.caption)
+          .foregroundStyle(status.usedOriginalText ? Color.orange : Color.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+
       HStack(spacing: 12) {
         Button {
           model.repeatLastTranscript()

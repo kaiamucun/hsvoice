@@ -1,0 +1,146 @@
+{
+  "applicationContextEnabled" : true,
+  "availability" : "available",
+  "createdAt" : "2026-09-09T07:01:12Z",
+  "engine" : "Apple FoundationModels (on-device)",
+  "label" : "improved-v2",
+  "mode" : "cleanup",
+  "operatingSystem" : "Version 26.5 (Build 25F71)",
+  "results" : [
+    {
+      "insertedText" : "了解",
+      "latencySeconds" : 0.758904458,
+      "refinedOutput" : "了解",
+      "sample" : {
+        "expectedQualities" : [
+          "Remove the filler",
+          "Preserve the acknowledgement"
+        ],
+        "id" : "short-filler",
+        "input" : "えっと了解",
+        "vocabulary" : [
+
+        ]
+      },
+      "serviceStatus" : "refined",
+      "usedFallback" : false
+    },
+    {
+      "insertedText" : "明日の会議は4時に変更してください。",
+      "latencySeconds" : 0.452732542,
+      "refinedOutput" : "明日の会議は4時に変更してください。",
+      "sample" : {
+        "expectedQualities" : [
+          "Use the final corrected time, 4",
+          "Keep tomorrow and the change request"
+        ],
+        "id" : "corrected-time",
+        "input" : "えっと、明日の会議は3時、いや4時に変更してください。",
+        "vocabulary" : [
+
+        ]
+      },
+      "serviceStatus" : "refined",
+      "usedFallback" : false
+    },
+    {
+      "insertedText" : "契約はまだ承認していません。送付しないでください。",
+      "latencySeconds" : 0.4268535,
+      "refinedOutput" : "契約はまだ承認していません。送付しないでください。",
+      "sample" : {
+        "expectedQualities" : [
+          "Preserve the unapproved status",
+          "Preserve the request not to send"
+        ],
+        "id" : "negation",
+        "input" : "契約はまだ承認していません。送付しないでください。",
+        "vocabulary" : [
+
+        ]
+      },
+      "serviceStatus" : "unchanged",
+      "usedFallback" : false
+    },
+    {
+      "insertedText" : "たぶん金曜までには終わると思いますが、まだ確定ではありません。",
+      "latencySeconds" : 0.499136125,
+      "refinedOutput" : "たぶん金曜までには終わると思いますが、まだ確定ではありません。",
+      "sample" : {
+        "expectedQualities" : [
+          "Preserve uncertainty",
+          "Do not convert the estimate into a commitment"
+        ],
+        "id" : "uncertainty",
+        "input" : "たぶん金曜までには終わると思いますが、まだ確定ではありません。",
+        "vocabulary" : [
+
+        ]
+      },
+      "serviceStatus" : "unchanged",
+      "usedFallback" : false
+    },
+    {
+      "insertedText" : "佐藤さんにHS Voiceの見積もり12万5000円を、9月18日までに送ってください。",
+      "latencySeconds" : 0.587130375,
+      "refinedOutput" : "佐藤さんにHS Voiceの見積もり12万5000円を、9月18日までに送ってください。",
+      "sample" : {
+        "expectedQualities" : [
+          "Preserve the recipient and product",
+          "Preserve 125000 yen and September 18",
+          "Keep the send request"
+        ],
+        "id" : "names-numbers",
+        "input" : "えー、佐藤さんにHS Voiceの見積もり12万5000円を、9月18日までに送ってください。",
+        "vocabulary" : [
+          "HS Voice",
+          "佐藤"
+        ]
+      },
+      "serviceStatus" : "refined",
+      "usedFallback" : false
+    },
+    {
+      "insertedText" : "Slackのreleaseチャンネルに、APIのtimeoutを30秒に変更したって共有してください。",
+      "latencySeconds" : 0.518585042,
+      "refinedOutput" : "Slackのreleaseチャンネルに、APIのtimeoutを30秒に変更したって共有してください。",
+      "sample" : {
+        "expectedQualities" : [
+          "Preserve the channel and technical terms",
+          "Preserve 30 seconds and the sharing request",
+          "Keep Japanese as the main language"
+        ],
+        "id" : "mixed-english",
+        "input" : "Slackのreleaseチャンネルに、APIのtimeoutを30秒に変更したって共有してください。",
+        "vocabulary" : [
+          "Slack",
+          "API",
+          "timeout",
+          "release"
+        ]
+      },
+      "serviceStatus" : "unchanged",
+      "usedFallback" : false
+    },
+    {
+      "insertedText" : "資料を送ってください、田中さんに。今日中でお願いします。送る前に数字だけ確認してください。",
+      "latencySeconds" : 0.5130085,
+      "refinedOutput" : "資料を送ってください、田中さんに。今日中でお願いします。送る前に数字だけ確認してください。",
+      "sample" : {
+        "expectedQualities" : [
+          "Keep Tanaka as the recipient and today as the deadline",
+          "Place checking numbers before sending",
+          "Do not invent actions or details"
+        ],
+        "id" : "disordered-clauses",
+        "input" : "資料を送ってください、田中さんに。今日中でお願いします。あ、送る前に数字だけ確認してください。",
+        "vocabulary" : [
+          "田中"
+        ]
+      },
+      "serviceStatus" : "refined",
+      "usedFallback" : false
+    }
+  ],
+  "suite" : "baseline",
+  "syntheticInputOnly" : true
+}

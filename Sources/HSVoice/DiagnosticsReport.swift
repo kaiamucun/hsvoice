@@ -10,7 +10,8 @@ enum DiagnosticsReport {
     lastError: String?,
     lastEngine: String? = nil,
     fnDebug: String? = nil,
-    sessionOnConsole: Bool? = nil
+    sessionOnConsole: Bool? = nil,
+    lastRefinementStatus: RefinementStatus? = nil
   ) -> String {
     let bundle = Bundle.main
     let version =
@@ -47,6 +48,7 @@ enum DiagnosticsReport {
       Speech permission: \(yesNo(permissions.speechGranted))
       Accessibility permission: \(yesNo(permissions.accessibilityGranted))
       AI refinement: \(yesNo(settings.aiRefinementEnabled)) (mode: \(settings.aiRefinementMode.rawValue), availability: \(String(describing: RefinementService.availability())))
+      Last refinement: \(lastRefinementStatus?.diagnosticIdentifier ?? "none")
       UI language: \(settings.appLanguage.rawValue)
       Local history: \(yesNo(settings.keepHistory))
       Launch at login: \(yesNo(settings.launchAtLogin))
