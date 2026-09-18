@@ -150,7 +150,12 @@ struct MenuBarView: View {
         .lineLimit(3)
         .textSelection(.enabled)
 
-      if let status = model.lastRefinementStatus {
+      if let status = model.lastTranslationStatus, status.shouldDisplay {
+        Text(status.message)
+          .font(.caption)
+          .foregroundStyle(status.usedOriginalText ? Color.orange : Color.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+      } else if let status = model.lastRefinementStatus {
         Text(status.message)
           .font(.caption)
           .foregroundStyle(status.usedOriginalText ? Color.orange : Color.secondary)
@@ -195,6 +200,20 @@ struct MenuBarView: View {
 
   private var quickControls: some View {
     VStack(alignment: .leading, spacing: 8) {
+      Picker(
+        L.t("入力モード", "Output", "输出方式", "입력 모드"),
+        selection: Binding(
+          get: { settings.voiceOutputMode },
+          set: { model.setVoiceOutputMode($0) }
+        )
+      ) {
+        ForEach(VoiceOutputMode.allCases) { mode in
+          Text(mode.shortLabel).tag(mode)
+        }
+      }
+      .pickerStyle(.segmented)
+      .labelsHidden()
+
       HStack(spacing: 14) {
         VStack(alignment: .leading, spacing: 3) {
           Label(L.t("話す言語", "Spoken language", "所说语言", "말하는 언어"), systemImage: "character.bubble")
@@ -227,6 +246,27 @@ struct MenuBarView: View {
           ) {
             ForEach(InsertionMode.allCases) { mode in
               Text(mode.shortLabel).tag(mode)
+            }
+          }
+          .labelsHidden()
+          .pickerStyle(.menu)
+          .frame(maxWidth: .infinity, alignment: .leading)
+        }
+      }
+
+      if settings.voiceOutputMode == .translate {
+        VStack(alignment: .leading, spacing: 3) {
+          Label(
+            L.t("出力言語", "Output language", "输出语言", "출력 언어"),
+            systemImage: "globe")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+          Picker(
+            L.t("出力言語", "Output language", "输出语言", "출력 언어"),
+            selection: $settings.translationTargetLocaleIdentifier
+          ) {
+            ForEach(VoiceLocale.recommended) { locale in
+              Text(locale.nativeName).tag(locale.identifier)
             }
           }
           .labelsHidden()
@@ -310,7 +350,10 @@ struct MenuBarView: View {
     case .requestingPermission:
       return L.t("権限を確認中", "Checking permissions", "正在检查权限", "권한 확인 중")
     case .listening: return L.t("クリックして終了", "Click to stop", "点击结束", "클릭해서 종료")
-    case .processing: return L.t("テキストを準備中", "Preparing text", "正在准备文本", "텍스트 준비 중")
+    case .processing:
+      return model.isTranslating
+        ? L.t("翻訳中", "Translating", "正在翻译", "번역 중")
+        : L.t("テキストを準備中", "Preparing text", "正在准备文本", "텍스트 준비 중")
     }
   }
 

@@ -161,6 +161,40 @@ enum InsertionMode: String, CaseIterable, Identifiable, Codable {
   }
 }
 
+/// Whether the final transcript is inserted as recognized, or translated first.
+enum VoiceOutputMode: String, CaseIterable, Identifiable, Codable, Sendable {
+  case dictation
+  case translate
+
+  var id: String { rawValue }
+
+  var label: String {
+    switch self {
+    case .dictation: return L.t("音声入力", "Dictation", "听写", "받아쓰기")
+    case .translate: return L.t("翻訳", "Translate", "翻译", "번역")
+    }
+  }
+
+  var shortLabel: String { label }
+
+  var detail: String {
+    switch self {
+    case .dictation:
+      return L.t(
+        "話した言語のまま、認識した文章を入力します。",
+        "Inserts the recognized text in the language you spoke.",
+        "按所说语言直接输入识别的文字。",
+        "말한 언어 그대로 인식한 문장을 입력합니다.")
+    case .translate:
+      return L.t(
+        "認識したあと、指定した言語へ翻訳してから入力します。",
+        "Recognizes your speech, then translates it into the output language before inserting.",
+        "识别后再翻译成指定语言并输入。",
+        "인식한 뒤 지정한 언어로 번역해서 입력합니다.")
+    }
+  }
+}
+
 /// One recorded key combination: a single non-modifier key plus Carbon
 /// modifier flags. This is what the settings recorder captures and what
 /// `GlobalHotKeyManager` hands to `RegisterEventHotKey`.
@@ -487,6 +521,37 @@ struct VoiceLocale: Identifiable, Hashable {
     .init(
       identifier: "pt-BR", displayName: "Portuguese (Brazil)", nativeName: "Português (Brasil)"),
   ]
+
+  static func named(_ identifier: String) -> VoiceLocale? {
+    recommended.first { $0.identifier == identifier }
+  }
+
+  static func nativeName(for identifier: String) -> String {
+    named(identifier)?.nativeName ?? identifier
+  }
+
+  static func displayName(for identifier: String) -> String {
+    named(identifier)?.displayName ?? identifier
+  }
+
+  /// Language subtag only (`ja-JP` and `ja` → `ja`), so regional variants of
+  /// the same language are treated as the same for translation no-ops.
+  static func languageCode(for identifier: String) -> String {
+    identifier.split(separator: "-").first.map { String($0).lowercased() }
+      ?? identifier.lowercased()
+  }
+
+  static func sharesLanguage(_ first: String, _ second: String) -> Bool {
+    languageCode(for: first) == languageCode(for: second)
+  }
+
+  static func defaultTranslationTarget(forSpoken identifier: String) -> String {
+    sharesLanguage(identifier, "ja-JP") ? "en-US" : "ja-JP"
+  }
+
+  static func translationPairLabel(from source: String, to target: String) -> String {
+    "\(nativeName(for: source)) → \(nativeName(for: target))"
+  }
 }
 
 struct HistoryEntry: Identifiable, Codable, Equatable {
@@ -495,19 +560,24 @@ struct HistoryEntry: Identifiable, Codable, Equatable {
   let text: String
   let applicationName: String?
   let localeIdentifier: String
+  /// The recognized transcript before translation. Nil for dictation entries
+  /// and for history written before translation existed.
+  let sourceText: String?
 
   init(
     id: UUID = UUID(),
     createdAt: Date = Date(),
     text: String,
     applicationName: String?,
-    localeIdentifier: String
+    localeIdentifier: String,
+    sourceText: String? = nil
   ) {
     self.id = id
     self.createdAt = createdAt
     self.text = text
     self.applicationName = applicationName
     self.localeIdentifier = localeIdentifier
+    self.sourceText = sourceText
   }
 }
 

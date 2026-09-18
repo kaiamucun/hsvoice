@@ -28,6 +28,9 @@ final class SettingsStore: ObservableObject {
     static let dictionaryEntries = "dictionaryEntries"
     static let replacementRules = "replacementRules"
     static let preferredInputDeviceUID = "preferredInputDeviceUID"
+    static let voiceOutputMode = "voiceOutputMode"
+    static let translationTargetLocaleIdentifier = "translationTargetLocaleIdentifier"
+    static let translationCustomInstructions = "translationCustomInstructions"
   }
 
   private let defaults: UserDefaults
@@ -130,6 +133,25 @@ final class SettingsStore: ObservableObject {
     didSet { defaults.set(aiCustomInstructions, forKey: Key.aiCustomInstructions) }
   }
 
+  /// Insert as recognized, or translate the final transcript first.
+  @Published var voiceOutputMode: VoiceOutputMode {
+    didSet { defaults.set(voiceOutputMode.rawValue, forKey: Key.voiceOutputMode) }
+  }
+
+  /// Language the transcript is translated into when `voiceOutputMode` is `.translate`.
+  @Published var translationTargetLocaleIdentifier: String {
+    didSet {
+      defaults.set(
+        translationTargetLocaleIdentifier, forKey: Key.translationTargetLocaleIdentifier)
+    }
+  }
+
+  /// Free-form sense and wording rules for Apple Intelligence translation.
+  /// Unused by Apple Translation and unused by AI polish.
+  @Published var translationCustomInstructions: String {
+    didSet { defaults.set(translationCustomInstructions, forKey: Key.translationCustomInstructions) }
+  }
+
   @Published private(set) var launchAtLogin: Bool
   @Published private(set) var launchAtLoginError: String?
   @Published var completedOnboarding: Bool {
@@ -177,6 +199,13 @@ final class SettingsStore: ObservableObject {
     aiRefinementEnabled = defaults.object(forKey: Key.aiRefinementEnabled) as? Bool ?? false
     aiRefinementMode =
       RefinementMode(rawValue: defaults.string(forKey: Key.aiRefinementMode) ?? "") ?? .cleanup
+    voiceOutputMode =
+      VoiceOutputMode(rawValue: defaults.string(forKey: Key.voiceOutputMode) ?? "") ?? .dictation
+    translationTargetLocaleIdentifier =
+      defaults.string(forKey: Key.translationTargetLocaleIdentifier)
+      ?? VoiceLocale.defaultTranslationTarget(
+        forSpoken: defaults.string(forKey: Key.localeIdentifier) ?? "ja-JP")
+    translationCustomInstructions = defaults.string(forKey: Key.translationCustomInstructions) ?? ""
     launchAtLogin = SMAppService.mainApp.status == .enabled
     L.current = appLanguage
     if let migratedDictionary {
@@ -221,6 +250,17 @@ final class SettingsStore: ObservableObject {
 
   func removeReplacementRule(id: UUID) {
     replacementRules.removeAll { $0.id == id }
+  }
+
+  /// Switching into Translate with the same source and target would be a no-op,
+  /// so pick a useful default pair (Japanese → English, otherwise → Japanese).
+  func setVoiceOutputMode(_ mode: VoiceOutputMode) {
+    voiceOutputMode = mode
+    guard mode == .translate,
+      VoiceLocale.sharesLanguage(localeIdentifier, translationTargetLocaleIdentifier)
+    else { return }
+    translationTargetLocaleIdentifier = VoiceLocale.defaultTranslationTarget(
+      forSpoken: localeIdentifier)
   }
 
   /// "Reset to defaults" for the General page.

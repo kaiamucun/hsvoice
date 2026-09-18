@@ -349,6 +349,12 @@ struct AISettingsPage: View {
               "AI润色与摘要需要macOS 26或更高版本，且Mac支持Apple Intelligence。",
               "AI 다듬기·요약은 macOS 26 이상의 Apple Intelligence 지원 Mac에서 사용할 수 있습니다."))
         }
+        SettingCaption(
+          L.t(
+            "翻訳モードではこの整形も、ここのカスタム指示も使いません。翻訳用の指示は「音声認識」で設定します。",
+            "Translate mode skips this polish and these custom instructions. Set translation notes under Recognition.",
+            "翻译模式不使用此润色和这里的自定义指令。请在“语音识别”中设置翻译说明。",
+            "번역 모드에서는 이 다듬기와 여기의 사용자 지침을 쓰지 않습니다. 번역 지침은 「음성 인식」에서 설정합니다."))
       }
 
       Section(L.t("カスタム指示", "Custom Instructions", "自定义指令", "사용자 지침")) {

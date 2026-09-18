@@ -11,7 +11,8 @@ enum DiagnosticsReport {
     lastEngine: String? = nil,
     fnDebug: String? = nil,
     sessionOnConsole: Bool? = nil,
-    lastRefinementStatus: RefinementStatus? = nil
+    lastRefinementStatus: RefinementStatus? = nil,
+    lastTranslationStatus: TranslationStatus? = nil
   ) -> String {
     let bundle = Bundle.main
     let version =
@@ -37,6 +38,8 @@ enum DiagnosticsReport {
       Repeat shortcut: \(settings.repeatShortcutEnabled ? settings.repeatShortcut.displayName : "off")
       Activation mode: \(settings.activationMode.rawValue)
       Insertion mode: \(settings.insertionMode.rawValue)
+      Output mode: \(settings.voiceOutputMode.rawValue)
+      Translation target: \(settings.translationTargetLocaleIdentifier)
       Prefer on-device: \(yesNo(settings.preferOnDevice))
       Analyzer engine enabled: \(yesNo(settings.useAnalyzerEngine))
       Analyzer engine supported: \(yesNo(SpeechTranscriber.analyzerEngineSupported))
@@ -49,6 +52,8 @@ enum DiagnosticsReport {
       Accessibility permission: \(yesNo(permissions.accessibilityGranted))
       AI refinement: \(yesNo(settings.aiRefinementEnabled)) (mode: \(settings.aiRefinementMode.rawValue), availability: \(String(describing: RefinementService.availability())))
       Last refinement: \(lastRefinementStatus?.diagnosticIdentifier ?? "none")
+      Last translation: \(lastTranslationStatus?.diagnosticIdentifier ?? "none")
+      Translation instructions: \(yesNo(!settings.translationCustomInstructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
       UI language: \(settings.appLanguage.rawValue)
       Local history: \(yesNo(settings.keepHistory))
       Launch at login: \(yesNo(settings.launchAtLogin))
@@ -56,7 +61,7 @@ enum DiagnosticsReport {
       Fn debug: \(fnDebug ?? "n/a")
       Session on console: \(sessionOnConsole.map(yesNo) ?? "n/a")
 
-      Privacy: This report never includes dictated text, audio, custom vocabulary, user name, or device name.
+      Privacy: This report never includes dictated text, audio, custom vocabulary, custom instructions, user name, or device name.
       """
   }
 

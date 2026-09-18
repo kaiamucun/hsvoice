@@ -32,10 +32,10 @@ xcrun swift test --disable-sandbox
 scripts/refinement-evaluation.sh current
 HSVOICE_REFINEMENT_EVALUATION_SUITE=heldout scripts/refinement-evaluation.sh current-heldout
 HSVOICE_REFINEMENT_EVALUATION_SUITE=final scripts/refinement-evaluation.sh current-final
-VERSION=1.7.2 BUILD_NUMBER=24 APP_SIGNING_IDENTITY=- INSTALLER_SIGNING_IDENTITY='' NOTARY_PROFILE='' ./scripts/build-installer.sh
+VERSION=1.8.0 BUILD_NUMBER=25 APP_SIGNING_IDENTITY=- INSTALLER_SIGNING_IDENTITY='' NOTARY_PROFILE='' ./scripts/build-installer.sh
 ```
 
-インストーラは `release/HSVoice-1.7.2/HSVoice-Installer-1.7.2.pkg` です。[ダウンロードページ](https://kaiamucun.github.io/hsvoice/)から配布します。アプリはad-hoc署名、インストーラは未署名です。
+インストーラは `release/HSVoice-1.8.0/HSVoice-Installer-1.8.0.pkg` です。[ダウンロードページ](https://kaiamucun.github.io/hsvoice/)から配布します。アプリはad-hoc署名、インストーラは未署名です。
 
 ## 外部AIオプション
 

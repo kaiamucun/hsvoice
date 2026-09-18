@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="${VERSION:-1.7.2}"
-BUILD_NUMBER="${BUILD_NUMBER:-24}"
+VERSION="${VERSION:-1.8.0}"
+BUILD_NUMBER="${BUILD_NUMBER:-25}"
 BUNDLE_IDENTIFIER="${BUNDLE_IDENTIFIER:-com.hsvoice.desktop}"
 APP_SIGNING_IDENTITY="${APP_SIGNING_IDENTITY:--}"
 INSTALLER_SIGNING_IDENTITY="${INSTALLER_SIGNING_IDENTITY:-}"
@@ -49,7 +49,7 @@ build_architecture() {
         --scratch-path "$scratch"
 
     local binary
-    binary="$(find "$scratch" -type f -path '*/release/HSVoice' -perm -111 -print -quit)"
+    binary="$(find -L "$scratch" -type f -path '*/release/HSVoice' -perm -111 -print -quit)"
     if [[ -z "$binary" ]]; then
         echo "Could not locate the $architecture release executable" >&2
         exit 1
