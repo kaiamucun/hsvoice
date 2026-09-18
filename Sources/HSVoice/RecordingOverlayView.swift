@@ -36,6 +36,7 @@ struct RecordingOverlayView: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
     .padding(.horizontal, 16)
     .padding(.bottom, 10)
+    .appleTranslationSessionHost()
     .accessibilityElement(children: .combine)
     .accessibilityLabel(accessibilityStatus)
   }
@@ -76,6 +77,17 @@ struct RecordingOverlayView: View {
         .frame(width: 84)
 
         durationLabel
+
+        if settings.voiceOutputMode == .translate {
+          Text(
+            VoiceLocale.translationPairLabel(
+              from: settings.localeIdentifier,
+              to: settings.translationTargetLocaleIdentifier)
+          )
+          .font(.system(size: 10, weight: .semibold, design: .rounded))
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
+        }
       } else {
         Text(expandedMessage)
           .font(.system(size: 11.5, weight: .medium, design: .rounded))
@@ -118,7 +130,7 @@ struct RecordingOverlayView: View {
     case .requestingPermission:
       return L.t("権限を確認中", "Checking permissions", "正在检查权限", "권한 확인 중")
     case .processing:
-      return L.t("処理中", "Processing", "处理中", "처리 중")
+      return model.stateDetail
     case .success, .error:
       return model.stateDetail
     case .idle, .listening:

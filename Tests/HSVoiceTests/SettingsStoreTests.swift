@@ -46,10 +46,13 @@ final class SettingsStoreTests: XCTestCase {
     XCTAssertEqual(settings.aiRefinementMode, .cleanup)
     XCTAssertTrue(settings.showIdleIndicator)
     XCTAssertEqual(settings.appLanguage, .japanese)
+    XCTAssertEqual(settings.voiceOutputMode, .dictation)
+    XCTAssertEqual(settings.translationTargetLocaleIdentifier, "en-US")
     XCTAssertTrue(settings.dictionaryEntries.isEmpty)
     XCTAssertTrue(settings.replacementRules.isEmpty)
     XCTAssertNil(settings.preferredInputDeviceUID)
     XCTAssertEqual(settings.aiCustomInstructions, "")
+    XCTAssertEqual(settings.translationCustomInstructions, "")
   }
 
   func testDictionaryReplacementsMicrophoneAndInstructionsPersist() {
@@ -135,6 +138,46 @@ final class SettingsStoreTests: XCTestCase {
     let reloaded = SettingsStore(defaults: defaults)
     XCTAssertTrue(reloaded.aiRefinementEnabled)
     XCTAssertEqual(reloaded.aiRefinementMode, .summarize)
+  }
+
+  func testVoiceOutputModeAndTranslationTargetPersist() {
+    let suiteName = "HSVoiceTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+
+    let settings = SettingsStore(defaults: defaults)
+    settings.setVoiceOutputMode(.translate)
+    settings.translationTargetLocaleIdentifier = "ko-KR"
+    settings.translationCustomInstructions = "production は本番と訳す"
+
+    let reloaded = SettingsStore(defaults: defaults)
+    XCTAssertEqual(reloaded.voiceOutputMode, .translate)
+    XCTAssertEqual(reloaded.translationTargetLocaleIdentifier, "ko-KR")
+    XCTAssertEqual(reloaded.translationCustomInstructions, "production は本番と訳す")
+  }
+
+  func testEnablingTranslateWithMatchingLanguagesPicksAUsefulTarget() {
+    let suiteName = "HSVoiceTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+
+    let settings = SettingsStore(defaults: defaults)
+    settings.localeIdentifier = "ja-JP"
+    settings.translationTargetLocaleIdentifier = "ja-JP"
+    settings.setVoiceOutputMode(.translate)
+    XCTAssertEqual(settings.voiceOutputMode, .translate)
+    XCTAssertEqual(settings.translationTargetLocaleIdentifier, "en-US")
+
+    settings.localeIdentifier = "en-US"
+    settings.translationTargetLocaleIdentifier = "en-GB"
+    settings.setVoiceOutputMode(.translate)
+    XCTAssertEqual(settings.translationTargetLocaleIdentifier, "ja-JP")
+  }
+
+  func testVoiceOutputModesHaveUniqueUserFacingLabels() {
+    let labels = VoiceOutputMode.allCases.map(\.label)
+    XCTAssertEqual(labels.count, Set(labels).count)
+    XCTAssertTrue(VoiceOutputMode.allCases.allSatisfy { !$0.detail.isEmpty })
   }
 
   func testAIRefinementModesHaveUniqueUserFacingLabels() {

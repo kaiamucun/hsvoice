@@ -17,6 +17,7 @@ final class DiagnosticsReportTests: XCTestCase {
       ReplacementRule(trigger: "SECRET-TRIGGER", replacement: "SECRET-ADDRESS@example.com")
     ]
     settings.aiCustomInstructions = "SECRET-INSTRUCTION"
+    settings.translationCustomInstructions = "SECRET-TRANSLATION-INSTRUCTION"
     settings.setInsertionMode(.clipboardOnly)
     let report = DiagnosticsReport.make(
       settings: settings,
@@ -32,10 +33,14 @@ final class DiagnosticsReportTests: XCTestCase {
     XCTAssertFalse(report.contains("SECRET-TRIGGER"))
     XCTAssertFalse(report.contains("SECRET-ADDRESS"))
     XCTAssertFalse(report.contains("SECRET-INSTRUCTION"))
+    XCTAssertFalse(report.contains("SECRET-TRANSLATION-INSTRUCTION"))
     XCTAssertTrue(report.contains("never includes dictated text"))
     XCTAssertTrue(report.contains("Last error: network unavailable"))
     XCTAssertTrue(report.contains("Insertion mode: clipboardOnly"))
     XCTAssertTrue(report.contains("Last engine used: SpeechAnalyzer"))
     XCTAssertTrue(report.contains("Last refinement: timed_out"))
+    XCTAssertTrue(report.contains("Output mode: dictation"))
+    XCTAssertTrue(report.contains("Translation target: en-US"))
+    XCTAssertTrue(report.contains("Last translation: none"))
   }
 }

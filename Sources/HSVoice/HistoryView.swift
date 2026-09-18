@@ -17,6 +17,7 @@ struct HistoryView: View {
     guard !searchText.isEmpty else { return history.entries }
     return history.entries.filter {
       $0.text.localizedCaseInsensitiveContains(searchText)
+        || ($0.sourceText?.localizedCaseInsensitiveContains(searchText) ?? false)
         || ($0.applicationName?.localizedCaseInsensitiveContains(searchText) ?? false)
     }
   }
@@ -86,6 +87,14 @@ private struct HistoryRow: View {
         .font(.system(size: 13))
         .textSelection(.enabled)
         .lineLimit(5)
+
+      if let source = entry.sourceText, !source.isEmpty, source != entry.text {
+        Text(source)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .textSelection(.enabled)
+          .lineLimit(2)
+      }
 
       HStack(spacing: 8) {
         Text(entry.createdAt.formatted(date: .abbreviated, time: .shortened))

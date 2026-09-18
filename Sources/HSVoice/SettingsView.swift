@@ -41,8 +41,10 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         "用于控制语音输入的按键和鼠标按钮。", "음성 입력을 조작하는 키와 마우스 버튼.")
     case .recognition:
       return L.t(
-        "話す言語、認識エンジン、使用するマイク。", "Spoken language, recognition engine, and microphone.",
-        "所说语言、识别引擎和使用的麦克风。", "말하는 언어, 인식 엔진, 사용하는 마이크.")
+        "話す言語、翻訳、認識エンジン、使用するマイク。",
+        "Spoken language, translation, recognition engine, and microphone.",
+        "所说语言、翻译、识别引擎和使用的麦克风。",
+        "말하는 언어, 번역, 인식 엔진, 사용하는 마이크.")
     case .dictionary:
       return L.t(
         "人名・製品名・専門用語を正しい表記で入力します。",

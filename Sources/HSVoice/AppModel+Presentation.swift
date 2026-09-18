@@ -58,6 +58,12 @@ extension AppModel {
       }
         ?? L.t("録音中", "Recording", "录音中", "녹음 중") + " • \(formattedRecordingDuration)"
     case .processing:
+      if isTranslating {
+        let target = VoiceLocale.nativeName(for: settings.translationTargetLocaleIdentifier)
+        return L.t(
+          "端末内で\(target)へ翻訳しています", "Translating to \(target) on this Mac",
+          "正在本机翻译为\(target)", "이 Mac에서 \(target)(으)로 번역 중")
+      }
       return isRefining
         ? L.t("端末内AIで文章を整えています", "Polishing with on-device AI", "正在用设备端AI润色", "온디바이스 AI로 문장 다듬는 중")
         : L.t("入力する文章を準備しています", "Preparing text for insertion", "正在准备输入文本", "입력할 문장을 준비 중")

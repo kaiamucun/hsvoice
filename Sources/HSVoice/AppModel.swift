@@ -13,6 +13,8 @@ final class AppModel: ObservableObject {
   @Published private(set) var lastOutcome: TextInsertionOutcome?
   @Published private(set) var isRefining = false
   @Published private(set) var lastRefinementStatus: RefinementStatus?
+  @Published private(set) var isTranslating = false
+  @Published private(set) var lastTranslationStatus: TranslationStatus?
   @Published private(set) var targetApplicationName: String?
   @Published private(set) var shortcutAvailable = true
   @Published private(set) var repeatShortcutAvailable = true
@@ -59,6 +61,9 @@ final class AppModel: ObservableObject {
     let aiCustomInstructions: String
     let vocabularyHints: [String]
     let replacer: TextReplacer
+    let outputMode: VoiceOutputMode
+    let translationTargetLocaleIdentifier: String
+    let translationCustomInstructions: String
   }
 
   func startServices() {
@@ -234,6 +239,11 @@ final class AppModel: ObservableObject {
     settings.setInsertionMode(mode)
   }
 
+  func setVoiceOutputMode(_ mode: VoiceOutputMode) {
+    guard state.allowsConfigurationChanges else { return }
+    settings.setVoiceOutputMode(mode)
+  }
+
   func handleShortcutPressed() {
     guard sessionIsActive else { return }
     switch ActivationPolicy.onPress(mode: settings.activationMode, isListening: state == .listening)
@@ -278,7 +288,9 @@ final class AppModel: ObservableObject {
     insertionTask?.cancel()
     insertionTask = nil
     if isRefining { lastRefinementStatus = .cancelled }
+    if isTranslating { lastTranslationStatus = .cancelled }
     isRefining = false
+    isTranslating = false
     stopRecordingTimer(resetDuration: true)
     partialTranscript = ""
     audioLevel = 0
@@ -339,7 +351,8 @@ final class AppModel: ObservableObject {
       lastEngine: transcriber.lastUsedEngine?.rawValue,
       fnDebug: hotKeyManager.fnDebugSnapshot,
       sessionOnConsole: sessionIsActive,
-      lastRefinementStatus: lastRefinementStatus
+      lastRefinementStatus: lastRefinementStatus,
+      lastTranslationStatus: lastTranslationStatus
     )
     NSPasteboard.general.clearContents()
     NSPasteboard.general.setString(report, forType: .string)
@@ -463,7 +476,9 @@ final class AppModel: ObservableObject {
     recordingDuration = 0
     lastOutcome = nil
     isRefining = false
+    isTranslating = false
     lastRefinementStatus = nil
+    lastTranslationStatus = nil
     let replacer = settings.makeReplacer()
     recordingContext = RecordingContext(
       localeIdentifier: settings.localeIdentifier,
@@ -473,11 +488,14 @@ final class AppModel: ObservableObject {
       aiRefinementMode: settings.aiRefinementMode,
       aiCustomInstructions: settings.aiCustomInstructions,
       vocabularyHints: settings.vocabularyTerms,
-      replacer: replacer
+      replacer: replacer,
+      outputMode: settings.voiceOutputMode,
+      translationTargetLocaleIdentifier: settings.translationTargetLocaleIdentifier,
+      translationCustomInstructions: settings.translationCustomInstructions
     )
-    if settings.aiRefinementEnabled {
-      // Load the model while the user is still speaking, so the refinement
-      // after the recording doesn't pay the cold start.
+    if settings.aiRefinementEnabled || settings.voiceOutputMode == .translate {
+      // Load the model while the user is still speaking, so polish or the
+      // Apple Intelligence translation fallback doesn't pay the cold start.
       RefinementService.prewarm()
     }
     state = .listening
@@ -560,17 +578,31 @@ final class AppModel: ObservableObject {
         // A discarded request must not change a later recording's UI state.
         guard !Task.isCancelled else { return }
         var finalText = text
-        if recordingContext.aiRefinementEnabled {
-          isRefining = true
-          let result = await RefinementService.refineWithResult(
-            text, mode: recordingContext.aiRefinementMode,
-            customInstructions: recordingContext.aiCustomInstructions,
+        var sourceText: String? = nil
+        if recordingContext.outputMode == .translate {
+          isTranslating = true
+          let result = await TranslationService.translateWithResult(
+            text,
+            sourceLocale: recordingContext.localeIdentifier,
+            targetLocale: recordingContext.translationTargetLocaleIdentifier,
             vocabulary: recordingContext.vocabularyHints,
+            customInstructions: recordingContext.translationCustomInstructions,
             applicationName: applicationName)
+          isTranslating = false
           guard !Task.isCancelled else { return }
-          isRefining = false
-          lastRefinementStatus = result.status
-          finalText = result.text ?? text
+          lastTranslationStatus = result.status
+          if result.status == .skippedSameLanguage {
+            if recordingContext.aiRefinementEnabled {
+              finalText = await polishTranscript(
+                text, context: recordingContext, applicationName: applicationName)
+            }
+          } else {
+            finalText = result.text ?? text
+            if finalText != text { sourceText = text }
+          }
+        } else if recordingContext.aiRefinementEnabled {
+          finalText = await polishTranscript(
+            text, context: recordingContext, applicationName: applicationName)
         }
         // Cancelled while the model was working — the user discarded this
         // dictation, so nothing may be inserted or recorded.
@@ -582,7 +614,8 @@ final class AppModel: ObservableObject {
             HistoryEntry(
               text: finalText,
               applicationName: applicationName,
-              localeIdentifier: recordingContext.localeIdentifier
+              localeIdentifier: recordingContext.localeIdentifier,
+              sourceText: sourceText
             )
           )
         }
@@ -600,6 +633,21 @@ final class AppModel: ObservableObject {
       showError(readableRecognitionError(error))
       scheduleReset(after: Timing.recognitionErrorResetDelay)
     }
+  }
+
+  private func polishTranscript(
+    _ text: String, context: RecordingContext, applicationName: String?
+  ) async -> String {
+    isRefining = true
+    let result = await RefinementService.refineWithResult(
+      text, mode: context.aiRefinementMode,
+      customInstructions: context.aiCustomInstructions,
+      vocabulary: context.vocabularyHints,
+      applicationName: applicationName)
+    isRefining = false
+    guard !Task.isCancelled else { return text }
+    lastRefinementStatus = result.status
+    return result.text ?? text
   }
 
   private func readableRecognitionError(_ error: Error) -> String {
@@ -764,7 +812,7 @@ final class AppModel: ObservableObject {
       handler: {
         [weak self] event in
         guard let self, event.keyCode == 53,
-          self.state == .listening || self.isRefining
+          self.state == .listening || self.isRefining || self.isTranslating
         else { return event }
         self.cancelListening()
         return nil
@@ -781,7 +829,8 @@ final class AppModel: ObservableObject {
         [weak self] event in
         guard event.keyCode == 53 else { return }
         Task { @MainActor in
-          guard let self, self.state == .listening || self.isRefining else { return }
+          guard let self, self.state == .listening || self.isRefining || self.isTranslating
+          else { return }
           self.cancelListening()
         }
       })

@@ -31,6 +31,94 @@ struct RecognitionSettingsPage: View {
         }
       }
 
+      Section(L.t("入力モード", "Output", "输出方式", "입력 모드")) {
+        Picker(selection: Binding(
+          get: { settings.voiceOutputMode },
+          set: { model.setVoiceOutputMode($0) }
+        )) {
+          ForEach(VoiceOutputMode.allCases) { mode in
+            Text(mode.label).tag(mode)
+          }
+        } label: {
+          SettingLabel(
+            title: L.t("認識後の処理", "After recognition", "识别后的处理", "인식 후 처리"),
+            detail: settings.voiceOutputMode.detail)
+        }
+        if settings.voiceOutputMode == .translate {
+          Picker(selection: $settings.translationTargetLocaleIdentifier) {
+            ForEach(VoiceLocale.recommended) { locale in
+              Text(locale.nativeName).tag(locale.identifier)
+            }
+          } label: {
+            SettingLabel(
+              title: L.t("出力言語", "Output language", "输出语言", "출력 언어"),
+              detail: L.t(
+                "話した内容をこの言語へ翻訳してから入力します。メニューバーからも切り替えられます。",
+                "Translates what you said into this language before inserting. Can also be switched from the menu bar.",
+                "将所说内容翻译成该语言后再输入。也可从菜单栏切换。",
+                "말한 내용을 이 언어로 번역한 뒤 입력합니다. 메뉴 막대에서도 전환할 수 있습니다."))
+          }
+          SettingCaption(
+            L.t(
+              "翻訳は認識が終わってから行います。macOS 15以降ではAppleの翻訳（言語パックがこのMacに入っている場合）を使い、入っていないときはApple Intelligenceで翻訳します。どちらも使えない場合は認識した文章をそのまま入力します。初めて使う言語はシステムが言語パックを案内することがあります。",
+              "Translation runs after recognition. On macOS 15 or later it uses Apple Translation when that language pair is installed on this Mac, and Apple Intelligence otherwise. If neither is available, the original transcript is inserted. The system may offer to download a language pack the first time you use a pair.",
+              "翻译在识别完成后进行。macOS 15及以上在本机已安装语言包时使用Apple翻译，否则使用Apple Intelligence。都不可用时输入原始识别文本。首次使用某语言时系统可能会提示下载语言包。",
+              "번역은 인식이 끝난 뒤에 실행됩니다. macOS 15 이상에서는 이 Mac에 언어 팩이 있으면 Apple 번역을 쓰고, 없으면 Apple Intelligence로 번역합니다. 둘 다 쓸 수 없으면 인식된 원문을 입력합니다. 처음 쓰는 언어는 시스템이 언어 팩 설치를 안내할 수 있습니다."))
+          if VoiceLocale.sharesLanguage(
+            settings.localeIdentifier, settings.translationTargetLocaleIdentifier)
+          {
+            SettingCaption(
+              L.t(
+                "話す言語と出力言語が同じため、翻訳せず音声入力と同じ動きになります。",
+                "Spoken and output languages match, so this behaves like dictation.",
+                "所说语言与输出语言相同，将按听写方式处理。",
+                "말하는 언어와 출력 언어가 같아 받아쓰기와 같이 동작합니다."),
+              isWarning: true)
+          }
+        }
+        if let status = model.lastTranslationStatus, status.shouldDisplay {
+          SettingCaption(status.message, isWarning: status.usedOriginalText)
+        }
+      }
+
+      if settings.voiceOutputMode == .translate {
+        Section(L.t("翻訳の指示", "Translation Instructions", "翻译指令", "번역 지침")) {
+          ZStack(alignment: .topLeading) {
+            TextEditor(text: $settings.translationCustomInstructions)
+              .font(.body)
+              .frame(minHeight: 100)
+            if settings.translationCustomInstructions.isEmpty {
+              Text(
+                L.t(
+                  "例: 「IT・ソフトウェアでは production を本番と訳す」「リリースは公開ではなく本番反映の意味」「訳文を引用符で囲まない」",
+                  "e.g. “In software, translate production as 本番”, “Release means shipping to prod, not a press release”, “Don’t wrap the translation in quotes”",
+                  "例如：“在软件语境中将 production 译为本番”“release 指发布到生产环境”“不要用引号包裹译文”",
+                  "예: 「IT·소프트웨어에서는 production을 本番으로 번역」「release는 배포의 의미」「번역문을 따옴표로 감싸지 않기」"))
+                .foregroundStyle(.tertiary)
+                .padding(.top, 8)
+                .padding(.leading, 5)
+                .allowsHitTesting(false)
+            }
+          }
+          SettingCaption(
+            L.t(
+              "翻訳モードではAI整形の指示は使いません。ここに書いた希望は、端末内AIで翻訳するときに使います。記入するとApple翻訳よりAIを優先します。",
+              "Translate mode does not use AI Polish instructions. These notes guide on-device AI translation, and when filled in they prefer Apple Intelligence over Apple Translation.",
+              "翻译模式不使用AI润色指令。此处说明会在设备端AI翻译时使用；填写后会优先使用Apple Intelligence而非Apple翻译。",
+              "번역 모드에서는 AI 다듬기 지침을 쓰지 않습니다. 여기에 적은 내용은 온디바이스 AI 번역에 쓰이며, 적으면 Apple 번역보다 AI를 우선합니다."))
+          SettingCaption(
+            L.t(
+              "目安は日本語で約300文字まで。長すぎる指示は保存できますが、短くするまで翻訳の指示としては使いません。",
+              "Keep instructions brief (about 300 Japanese characters). Longer instructions are saved, but they are not sent until you shorten them.",
+              "上限约为300个日文字符。过长的指令会保存，但缩短前不会用于翻译。",
+              "일본어 약 300자까지입니다. 긴 지침은 저장되지만 줄이기 전에는 번역에 쓰지 않습니다."),
+            isWarning: settings.translationCustomInstructions
+              .trimmingCharacters(in: .whitespacesAndNewlines)
+              .utf8.count > TranslationService.maxCustomInstructionBytes)
+        }
+        .disabled(!model.refinementSupported)
+      }
+
       Section(L.t("認識言語", "Recognition Language", "识别语言", "인식 언어")) {
         Picker(selection: $settings.localeIdentifier) {
           ForEach(VoiceLocale.recommended) { locale in
