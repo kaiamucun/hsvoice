@@ -482,6 +482,13 @@ struct PrivacySettingsPage: View {
           systemImage: "internaldrive")
         Label(
           L.t(
+            "相棒の使用量（文字数・回数・入力先アプリ名・言語）はこのMac内だけに記録し、本文は含みません",
+            "The buddy's usage counts (characters, dictations, target app names, languages) stay on this Mac and never include the text",
+            "伙伴的使用量（字数、次数、目标应用名、语言）仅记录在这台Mac上，不包含正文",
+            "단짝의 사용량(글자 수·횟수·입력 대상 앱 이름·언어)은 이 Mac 안에만 기록하며 본문은 포함하지 않습니다"),
+          systemImage: "face.smiling")
+        Label(
+          L.t(
             "AI整形はApple Intelligenceでこのマックの中だけで処理します", "AI polish runs on this Mac only, via Apple Intelligence",
             "AI润色通过Apple Intelligence仅在这台Mac上处理", "AI 다듬기는 Apple Intelligence로 이 Mac 안에서만 처리합니다"),
           systemImage: "sparkles")

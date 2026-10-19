@@ -329,6 +329,41 @@ final class HistoryWindowController: NSObject, NSWindowDelegate {
   }
 }
 
+@MainActor
+final class CompanionWindowController: NSObject, NSWindowDelegate {
+  static let shared = CompanionWindowController()
+
+  private var window: NSWindow?
+  var isVisible: Bool { window?.isVisible == true }
+
+  func show() {
+    let window = window ?? makeWindow()
+    self.window = window
+    NSApp.activate(ignoringOtherApps: true)
+    if !window.isVisible { window.center() }
+    window.makeKeyAndOrderFront(nil)
+  }
+
+  func windowWillClose(_ notification: Notification) {
+    window = nil
+  }
+
+  private func makeWindow() -> NSWindow {
+    let window = NSWindow(
+      contentRect: NSRect(x: 0, y: 0, width: 900, height: 680),
+      styleMask: [.titled, .closable, .miniaturizable, .resizable],
+      backing: .buffered,
+      defer: false
+    )
+    window.title = L.t("HS Voice 相棒", "HS Voice Buddy", "HS Voice 伙伴", "HS Voice 단짝")
+    window.isReleasedWhenClosed = false
+    window.delegate = self
+    window.contentView = NSHostingView(rootView: CompanionView(model: .shared))
+    window.contentMinSize = NSSize(width: 820, height: 600)
+    return window
+  }
+}
+
 extension NSScreen {
   fileprivate var displayID: CGDirectDisplayID? {
     (deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value

@@ -28,7 +28,16 @@ final class SettingsStore: ObservableObject {
     static let dictionaryEntries = "dictionaryEntries"
     static let replacementRules = "replacementRules"
     static let preferredInputDeviceUID = "preferredInputDeviceUID"
+    static let companionName = "companionName"
+    static let companionOutfit = "companionOutfit"
+    static let dailyCharacterGoal = "dailyCharacterGoal"
+    static let showCompanionInMenu = "showCompanionInMenu"
   }
+
+  /// Daily character goals offered in settings; the default matches the
+  /// usage-pet convention of 2,000 characters a day.
+  static let dailyCharacterGoalChoices = [500, 1_000, 2_000, 3_000, 5_000, 10_000]
+  static let defaultDailyCharacterGoal = 2_000
 
   private let defaults: UserDefaults
 
@@ -130,6 +139,26 @@ final class SettingsStore: ObservableObject {
     didSet { defaults.set(aiCustomInstructions, forKey: Key.aiCustomInstructions) }
   }
 
+  /// The companion's name; empty means "unnamed" and the UI shows a default.
+  @Published var companionName: String {
+    didSet { defaults.set(companionName, forKey: Key.companionName) }
+  }
+
+  /// What the companion is wearing — see `CompanionOutfit`.
+  @Published var companionOutfit: CompanionOutfit {
+    didSet { store(companionOutfit, forKey: Key.companionOutfit) }
+  }
+
+  /// Characters per day the companion's "today" bar counts toward.
+  @Published var dailyCharacterGoal: Int {
+    didSet { defaults.set(dailyCharacterGoal, forKey: Key.dailyCharacterGoal) }
+  }
+
+  /// Show the companion row in the menu bar popover.
+  @Published var showCompanionInMenu: Bool {
+    didSet { defaults.set(showCompanionInMenu, forKey: Key.showCompanionInMenu) }
+  }
+
   @Published private(set) var launchAtLogin: Bool
   @Published private(set) var launchAtLoginError: String?
   @Published var completedOnboarding: Bool {
@@ -177,6 +206,11 @@ final class SettingsStore: ObservableObject {
     aiRefinementEnabled = defaults.object(forKey: Key.aiRefinementEnabled) as? Bool ?? false
     aiRefinementMode =
       RefinementMode(rawValue: defaults.string(forKey: Key.aiRefinementMode) ?? "") ?? .cleanup
+    companionName = defaults.string(forKey: Key.companionName) ?? ""
+    companionOutfit = Self.decode(from: defaults, key: Key.companionOutfit) ?? .default
+    let storedGoal = defaults.object(forKey: Key.dailyCharacterGoal) as? Int
+    dailyCharacterGoal = storedGoal.map { max(1, $0) } ?? Self.defaultDailyCharacterGoal
+    showCompanionInMenu = defaults.object(forKey: Key.showCompanionInMenu) as? Bool ?? true
     launchAtLogin = SMAppService.mainApp.status == .enabled
     L.current = appLanguage
     if let migratedDictionary {
@@ -221,6 +255,13 @@ final class SettingsStore: ObservableObject {
 
   func removeReplacementRule(id: UUID) {
     replacementRules.removeAll { $0.id == id }
+  }
+
+  /// Puts an item on (or, with nil, takes it off) for one category.
+  func wearCompanionItem(_ itemID: String?, for category: CompanionItemCategory) {
+    var outfit = companionOutfit
+    outfit.set(itemID, for: category)
+    companionOutfit = outfit
   }
 
   /// "Reset to defaults" for the General page.

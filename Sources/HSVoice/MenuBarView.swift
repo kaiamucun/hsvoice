@@ -27,6 +27,12 @@ struct MenuBarView: View {
         .padding(.horizontal, 18)
         .padding(.top, 12)
 
+      if settings.showCompanionInMenu {
+        CompanionMenuRow(model: model)
+          .padding(.horizontal, 18)
+          .padding(.top, 10)
+      }
+
       if !model.lastTranscript.isEmpty, !isRecording {
         lastTranscriptCard
           .padding(.horizontal, 18)

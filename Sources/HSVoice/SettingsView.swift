@@ -9,6 +9,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
   case dictionary
   case replacements
   case ai
+  case companion
   case privacy
   case permissions
   case support
@@ -23,6 +24,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     case .dictionary: return L.t("辞書", "Dictionary", "词典", "사전")
     case .replacements: return L.t("置換", "Replacements", "替换", "치환")
     case .ai: return L.t("AI整形", "AI Polish", "AI润色", "AI 다듬기")
+    case .companion: return L.t("相棒", "Buddy", "伙伴", "단짝")
     case .privacy: return L.t("履歴とプライバシー", "History & Privacy", "历史与隐私", "기록과 프라이버시")
     case .permissions: return L.t("権限", "Permissions", "权限", "권한")
     case .support: return L.t("サポート", "Support", "支持", "지원")
@@ -58,6 +60,10 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         "Apple Intelligenceで、入力前に文章を仕上げます。",
         "Polish the transcript with Apple Intelligence before it is inserted.",
         "在输入前用Apple Intelligence润色文本。", "Apple Intelligence로 입력 전에 문장을 다듬습니다.")
+    case .companion:
+      return L.t(
+        "音声入力するほど育つ、あなたの相棒。", "A buddy that grows with every dictation.",
+        "越用越成长的语音伙伴。", "음성 입력할수록 자라는 당신의 단짝.")
     case .privacy:
       return L.t(
         "このMacに何を残すか。", "What stays on this Mac.", "这台Mac上保留什么。", "이 Mac에 무엇을 남길지.")
@@ -80,6 +86,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     case .dictionary: return "character.book.closed"
     case .replacements: return "arrow.left.arrow.right"
     case .ai: return "sparkles"
+    case .companion: return "face.smiling"
     case .privacy: return "hand.raised"
     case .permissions: return "checkmark.shield"
     case .support: return "questionmark.circle"
@@ -106,7 +113,11 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     .frame(minWidth: 860, minHeight: 600)
-    .onAppear { model.refreshPermissions() }
+    .onAppear {
+      model.refreshPermissions()
+      consumeRequestedPage()
+    }
+    .onReceive(model.$requestedSettingsPage) { _ in consumeRequestedPage() }
     .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification))
     {
       _ in
@@ -122,6 +133,14 @@ struct SettingsView: View {
         model.refreshPermissionStatus()
       }
     }
+  }
+
+  /// Another window asked for a specific page (the companion window's
+  /// "customize" button): switch to it once, then forget the request.
+  private func consumeRequestedPage() {
+    guard let page = model.requestedSettingsPage else { return }
+    selection = page
+    model.requestedSettingsPage = nil
   }
 
   private var sidebar: some View {
@@ -169,6 +188,7 @@ struct SettingsView: View {
     case .dictionary: DictionarySettingsPage(model: model)
     case .replacements: ReplacementSettingsPage(model: model)
     case .ai: AISettingsPage(model: model)
+    case .companion: CompanionSettingsPage(model: model)
     case .privacy: PrivacySettingsPage(model: model)
     case .permissions: PermissionSettingsPage(model: model)
     case .support: SupportSettingsPage(model: model)

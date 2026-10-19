@@ -32,6 +32,14 @@ final class AppModel: ObservableObject {
   let settings = SettingsStore.shared
   let permissions = PermissionsManager.shared
   let history = HistoryStore.shared
+  let usage = UsageStatsStore.shared
+
+  /// Settings page a non-scene window (the companion window) asked to show.
+  /// `SettingsView` consumes and clears it.
+  @Published var requestedSettingsPage: SettingsPage?
+  /// `openWindow(id: "settings")` captured from inside the SwiftUI scene, so
+  /// AppKit-hosted windows can open the settings window too.
+  var openSettingsWindowAction: (() -> Void)?
 
   private let hotKeyManager = GlobalHotKeyManager()
   private let transcriber = SpeechTranscriber()
@@ -354,6 +362,22 @@ final class AppModel: ObservableObject {
     HistoryWindowController.shared.show()
   }
 
+  func showCompanion() {
+    CompanionWindowController.shared.show()
+  }
+
+  /// Opens the settings window on a given page. Falls back to raising the
+  /// existing window by title when the scene action was never captured.
+  func showSettings(page: SettingsPage? = nil) {
+    requestedSettingsPage = page
+    NSApp.activate(ignoringOtherApps: true)
+    if let openSettingsWindowAction {
+      openSettingsWindowAction()
+    } else if let window = NSApp.windows.first(where: { $0.title == "HS Voice" }) {
+      window.makeKeyAndOrderFront(nil)
+    }
+  }
+
   func requestPermissions() async {
     state = .requestingPermission
     await permissions.requestTranscriptionPermissions()
@@ -586,6 +610,12 @@ final class AppModel: ObservableObject {
             )
           )
         }
+        // The companion counts every completed dictation (characters only,
+        // never the text) whether it is typed or copied.
+        usage.recordDictation(
+          characters: finalText.count,
+          applicationName: applicationName,
+          localeIdentifier: recordingContext.localeIdentifier)
         removeEscapeMonitors()
         let outcome = await insertionService.insert(finalText, into: insertionTarget)
         // A cancel that raced the insert itself must not flip the reset UI

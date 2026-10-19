@@ -26,6 +26,7 @@ struct HSVoiceApp: App {
 }
 
 private struct PrimaryWindowView: View {
+  @Environment(\.openWindow) private var openWindow
   @ObservedObject var model: AppModel
   @ObservedObject private var settings: SettingsStore
 
@@ -34,13 +35,21 @@ private struct PrimaryWindowView: View {
     _settings = ObservedObject(wrappedValue: model.settings)
   }
 
-  @ViewBuilder
   var body: some View {
-    if settings.completedOnboarding {
-      SettingsView(model: model)
-    } else {
-      OnboardingView(model: model)
+    Group {
+      if settings.completedOnboarding {
+        SettingsView(model: model)
+      } else {
+        OnboardingView(model: model)
+      }
     }
+    .onAppear { captureOpenWindow() }
+  }
+
+  /// AppKit-hosted windows (history, companion) have no scene environment,
+  /// so the scene's own open action is handed to the model once it exists.
+  private func captureOpenWindow() {
+    model.openSettingsWindowAction = { openWindow(id: "settings") }
   }
 }
 

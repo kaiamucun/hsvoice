@@ -50,6 +50,36 @@ final class SettingsStoreTests: XCTestCase {
     XCTAssertTrue(settings.replacementRules.isEmpty)
     XCTAssertNil(settings.preferredInputDeviceUID)
     XCTAssertEqual(settings.aiCustomInstructions, "")
+    XCTAssertEqual(settings.companionName, "")
+    XCTAssertEqual(settings.companionOutfit, .default)
+    XCTAssertEqual(settings.dailyCharacterGoal, 2_000)
+    XCTAssertTrue(settings.showCompanionInMenu)
+  }
+
+  func testCompanionCustomizationPersists() {
+    let suiteName = "HSVoiceTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+
+    let first = SettingsStore(defaults: defaults)
+    first.companionName = "ぷにたろう"
+    first.wearCompanionItem("partyHat", for: .hat)
+    first.wearCompanionItem("colorLeaf", for: .color)
+    first.dailyCharacterGoal = 5_000
+    first.showCompanionInMenu = false
+
+    let second = SettingsStore(defaults: defaults)
+    XCTAssertEqual(second.companionName, "ぷにたろう")
+    XCTAssertEqual(second.companionOutfit.hat, "partyHat")
+    XCTAssertEqual(second.companionOutfit.color, "colorLeaf")
+    XCTAssertNil(second.companionOutfit.face)
+    XCTAssertEqual(second.dailyCharacterGoal, 5_000)
+    XCTAssertFalse(second.showCompanionInMenu)
+
+    second.wearCompanionItem(nil, for: .hat)
+    second.wearCompanionItem(nil, for: .color)
+    XCTAssertNil(second.companionOutfit.hat)
+    XCTAssertEqual(second.companionOutfit.color, CompanionCatalog.defaultColorID)
   }
 
   func testDictionaryReplacementsMicrophoneAndInstructionsPersist() {
