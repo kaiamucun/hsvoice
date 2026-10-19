@@ -91,7 +91,7 @@ Codexなど、外側ですでにサンドボックス化された環境ではSwi
 ./scripts/verify-installer.sh
 ```
 
-完成物は[HSVoice-Installer-1.7.2.pkg](release/HSVoice-1.7.2/HSVoice-Installer-1.7.2.pkg)です。このフォルダには配布用PKGが1つだけ生成されます。利用者がPKGをダブルクリックすると、macOS標準のApple Installerが日本語の案内を表示し、確認後に`/Applications/HS Voice.app`をインストールします。コンポーネントは移動不可に設定され、開発用コピーなど別の場所へ移動して更新されることはありません。
+完成物は[HSVoice-Installer-1.8.0.pkg](release/HSVoice-1.8.0/HSVoice-Installer-1.8.0.pkg)です。このフォルダには配布用PKGが1つだけ生成されます。利用者がPKGをダブルクリックすると、macOS標準のApple Installerが日本語の案内を表示し、確認後に`/Applications/HS Voice.app`をインストールします。コンポーネントは移動不可に設定され、開発用コピーなど別の場所へ移動して更新されることはありません。
 
 macOSの安全機構により、「続ける」「インストール」とTouch IDまたは管理者パスワードの確認は省略できません。
 
