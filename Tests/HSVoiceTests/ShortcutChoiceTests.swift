@@ -5,16 +5,32 @@ import XCTest
 @testable import HSVoice
 
 final class ShortcutChoiceTests: XCTestCase {
-  func testShortcutChoicesIncludeFunctionKeyAndUniqueFallbacks() {
+  func testShortcutChoicesIncludeBareModifierKeysAndUniqueFallbacks() {
     let shortcuts = ShortcutChoice.presets
     XCTAssertEqual(ShortcutChoice.functionKey.keyLabels, ["fn"])
-    XCTAssertTrue(shortcuts.dropFirst().allSatisfy { $0.keyLabels.last == "Space" })
+    XCTAssertEqual(ShortcutChoice.control.keyLabels, ["control"])
+    XCTAssertEqual(Array(shortcuts.prefix(2)), [.functionKey, .control])
+    XCTAssertTrue(shortcuts.dropFirst(2).allSatisfy { $0.keyLabels.last == "Space" })
     XCTAssertEqual(Set(shortcuts.map(\.displayName)).count, shortcuts.count)
+  }
+
+  func testControlKeyIsABareModifierTriggerWithoutACarbonCombo() {
+    // Like fn, a bare control key has no Carbon hotkey and no recordable combo;
+    // it is watched through the modifier-key path of GlobalHotKeyManager.
+    XCTAssertNil(ShortcutChoice.control.keyCombo)
+    XCTAssertNil(ShortcutChoice.control.inputCombo)
+    XCTAssertTrue(ShortcutChoice.control.isBareModifierKey)
+    XCTAssertTrue(ShortcutChoice.functionKey.isBareModifierKey)
+    XCTAssertFalse(ShortcutChoice.controlSpace.isBareModifierKey)
+    XCTAssertFalse(
+      ShortcutChoice.custom(.mouse(MouseButtonCombo(buttonNumber: 2, carbonModifiers: 0)))
+        .isBareModifierKey)
   }
 
   func testPresetRawValuesStayStableForStoredSettings() {
     // These strings live in UserDefaults of existing installs.
     XCTAssertEqual(ShortcutChoice(rawValue: "functionKey"), .functionKey)
+    XCTAssertEqual(ShortcutChoice(rawValue: "controlKey"), .control)
     XCTAssertEqual(ShortcutChoice(rawValue: "optionSpace"), .optionSpace)
     XCTAssertEqual(ShortcutChoice(rawValue: "controlSpace"), .controlSpace)
     XCTAssertEqual(ShortcutChoice(rawValue: "commandShiftSpace"), .commandShiftSpace)
@@ -111,5 +127,114 @@ final class ShortcutChoiceTests: XCTestCase {
     manager.processFunctionFlags([])
 
     XCTAssertEqual(transitions, [.pressed, .released])
+  }
+
+  // MARK: control key (bare modifier) trigger
+
+  func testControlTriggerHeldPastThresholdIsAPressThenARelease() {
+    var tracker = ModifierKeyTriggerTracker()
+    XCTAssertEqual(tracker.update(isDown: true), [])
+    XCTAssertEqual(tracker.phase, .pending)
+    XCTAssertEqual(tracker.holdThresholdElapsed(), [.pressed])
+    XCTAssertEqual(tracker.phase, .active)
+    XCTAssertEqual(tracker.update(isDown: false), [.released])
+    XCTAssertEqual(tracker.phase, .idle)
+  }
+
+  func testControlTriggerQuickTapDeliversPressAndReleaseTogether() {
+    // Toggle and auto modes need a tap to reach the app even though the hold
+    // threshold never elapsed.
+    var tracker = ModifierKeyTriggerTracker()
+    _ = tracker.update(isDown: true)
+    XCTAssertEqual(tracker.update(isDown: false), [.pressed, .released])
+    XCTAssertEqual(tracker.phase, .idle)
+    // A threshold timer that fires after the tap is stale and must do nothing.
+    XCTAssertEqual(tracker.holdThresholdElapsed(), [])
+  }
+
+  func testControlTriggerIgnoresFastKeyCombinations() {
+    // ⌃C typed at normal speed: the letter lands before the hold threshold.
+    var tracker = ModifierKeyTriggerTracker()
+    _ = tracker.update(isDown: true)
+    XCTAssertEqual(tracker.otherKeyDown(), [])
+    XCTAssertEqual(tracker.phase, .suppressed)
+    XCTAssertEqual(tracker.holdThresholdElapsed(), [])
+    XCTAssertEqual(tracker.otherKeyDown(), [])  // key auto-repeat
+    XCTAssertEqual(tracker.update(isDown: false), [])
+    XCTAssertEqual(tracker.phase, .idle)
+  }
+
+  func testControlTriggerCancelsARecordingWhenASlowCombinationFollows() {
+    // control held long enough to start, then another key: the hold was the
+    // start of a combination after all, so the recording is discarded and
+    // nothing fires again until control is released.
+    var tracker = ModifierKeyTriggerTracker()
+    _ = tracker.update(isDown: true)
+    XCTAssertEqual(tracker.holdThresholdElapsed(), [.pressed])
+    XCTAssertEqual(tracker.otherKeyDown(), [.cancelled])
+    XCTAssertEqual(tracker.phase, .suppressed)
+    XCTAssertEqual(tracker.update(isDown: false), [])
+    XCTAssertEqual(tracker.update(isDown: true), [])
+    XCTAssertEqual(tracker.phase, .pending)
+  }
+
+  func testControlTriggerHeldDuringRegistrationNeverFiresOnItsRelease() {
+    var tracker = ModifierKeyTriggerTracker(isDown: true)
+    XCTAssertTrue(tracker.isKeyDown)
+    XCTAssertEqual(tracker.holdThresholdElapsed(), [])
+    XCTAssertEqual(tracker.update(isDown: false), [])
+    XCTAssertEqual(tracker.phase, .idle)
+  }
+
+  func testControlTriggerSeesACombinationBeforeTheModifierItself() {
+    // The letter's keyDown carries the control flag even when the control
+    // press was not observed yet (poll not ticked, tap not delivering).
+    var tracker = ModifierKeyTriggerTracker()
+    XCTAssertEqual(tracker.otherKeyDown(), [])
+    XCTAssertEqual(tracker.phase, .suppressed)
+    XCTAssertEqual(tracker.update(isDown: true), [])  // the late "down" changes nothing
+    XCTAssertEqual(tracker.phase, .suppressed)
+    XCTAssertEqual(tracker.update(isDown: false), [])
+    XCTAssertEqual(tracker.phase, .idle)
+  }
+
+  func testControlTriggerRepeatedStateReportsAreIdempotent() {
+    var tracker = ModifierKeyTriggerTracker()
+    XCTAssertEqual(tracker.update(isDown: false), [])
+    _ = tracker.update(isDown: true)
+    XCTAssertEqual(tracker.update(isDown: true), [])
+    XCTAssertEqual(tracker.phase, .pending)
+  }
+
+  func testManagerDeliversControlTriggerTransitionsAndRecoversAfterCancel() {
+    let manager = GlobalHotKeyManager()
+    var log: [String] = []
+    manager.onPressed = { log.append("pressed") }
+    manager.onReleased = { log.append("released") }
+    manager.onCancelled = { log.append("cancelled") }
+
+    manager.processModifierKeyState(true)
+    manager.fireModifierHoldThresholdForTesting()
+    manager.processOtherKeyDownWhileModifierHeld()
+    manager.processModifierKeyState(false)
+    XCTAssertEqual(log, ["pressed", "cancelled"])
+
+    // The cancel reset the pressed flag, so the next hold is a fresh press.
+    manager.processModifierKeyState(true)
+    manager.fireModifierHoldThresholdForTesting()
+    manager.processModifierKeyState(false)
+    XCTAssertEqual(log, ["pressed", "cancelled", "pressed", "released"])
+  }
+
+  func testManagerTreatsAQuickControlTapAsPressAndRelease() {
+    let manager = GlobalHotKeyManager()
+    var log: [String] = []
+    manager.onPressed = { log.append("pressed") }
+    manager.onReleased = { log.append("released") }
+    manager.onCancelled = { log.append("cancelled") }
+
+    manager.processModifierKeyState(true)
+    manager.processModifierKeyState(false)
+    XCTAssertEqual(log, ["pressed", "released"])
   }
 }

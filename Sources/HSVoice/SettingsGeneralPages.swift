@@ -256,6 +256,12 @@ struct ShortcutSettingsPage: View {
             "Press “Change…”, then type the key combination or click the mouse button you want (e.g. ⌘⇧V, or a side button; M3 = middle, M4/M5 = side).",
             "点按“更改…”后直接按下想使用的组合键或鼠标按钮即可登记（例如 ⌘⇧V、鼠标侧键。M3=中键、M4/M5=侧键）。",
             "「변경…」을 누른 뒤 사용할 키 조합이나 마우스 버튼을 그대로 누르면 등록됩니다（예: ⌘⇧V, 마우스 사이드 버튼. M3=가운데, M4/M5=사이드）."))
+        SettingCaption(
+          L.t(
+            "fnキーがないWindows配列の外付けキーボードでは、プリセットの「control」を選ぶとCtrlキーを押しながら話せます。Ctrl+Cなどの組み合わせはこれまでどおり使えます。",
+            "On a Windows-layout external keyboard without fn, choose the “control” preset to hold Ctrl while you speak. Combinations such as Ctrl+C keep working as before.",
+            "在没有fn键的Windows布局外接键盘上，选择预设“control”即可按住Ctrl键说话。Ctrl+C等组合键照常可用。",
+            "fn 키가 없는 Windows 배열 외장 키보드에서는 프리셋「control」을 선택하면 Ctrl 키를 누른 채 말할 수 있습니다. Ctrl+C 같은 조합은 그대로 사용할 수 있습니다."))
       }
 
       Section {

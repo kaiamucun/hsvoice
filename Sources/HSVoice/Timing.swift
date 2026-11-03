@@ -112,4 +112,15 @@ enum Timing {
   /// the single largest idle-power saving in the app: the app is idle almost all the
   /// time, and the fast poll was reading HID modifier state 60 times a second.
   static let functionKeyWatchdogInterval: TimeInterval = 0.1
+
+  // MARK: control key trigger
+
+  /// How long a bare control key must be held before it counts as the dictation
+  /// trigger. Control is the most combined modifier there is — ⌃C in a
+  /// terminal, ⌃A/⌃E in text fields, ⌃Tab in browsers — and at typing speed the
+  /// second key lands well inside this window, so none of those ever start
+  /// (and audibly cancel) a recording. A tap released sooner still counts as a
+  /// tap, so toggle and hands-free activation keep working. The first 0.35 s of
+  /// audio is discarded anyway, so the delay costs no words.
+  static let modifierKeyHoldThreshold: TimeInterval = 0.2
 }

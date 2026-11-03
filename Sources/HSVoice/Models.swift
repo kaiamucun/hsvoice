@@ -368,6 +368,10 @@ enum InputCombo: Equatable, Hashable, Codable {
 
 enum ShortcutChoice: RawRepresentable, Equatable, Hashable, Identifiable, Codable {
   case functionKey
+  /// A bare control key (either side), for Windows-layout external keyboards
+  /// whose fn key never reaches macOS. Held alone it works like fn; pressed as
+  /// part of a combination (⌃C …) it is left to the frontmost app.
+  case control
   case optionSpace
   case controlSpace
   case commandShiftSpace
@@ -376,7 +380,8 @@ enum ShortcutChoice: RawRepresentable, Equatable, Hashable, Identifiable, Codabl
 
   /// The fixed choices shown in the preset menu (the recorder covers the rest).
   static let presets: [ShortcutChoice] = [
-    .functionKey, .optionSpace, .controlSpace, .commandShiftSpace, .controlOptionSpace,
+    .functionKey, .control, .optionSpace, .controlSpace, .commandShiftSpace,
+    .controlOptionSpace,
   ]
 
   var id: String { rawValue }
@@ -386,6 +391,7 @@ enum ShortcutChoice: RawRepresentable, Equatable, Hashable, Identifiable, Codabl
   var rawValue: String {
     switch self {
     case .functionKey: return "functionKey"
+    case .control: return "controlKey"
     case .optionSpace: return "optionSpace"
     case .controlSpace: return "controlSpace"
     case .commandShiftSpace: return "commandShiftSpace"
@@ -397,6 +403,7 @@ enum ShortcutChoice: RawRepresentable, Equatable, Hashable, Identifiable, Codabl
   init?(rawValue: String) {
     switch rawValue {
     case "functionKey": self = .functionKey
+    case "controlKey": self = .control
     case "optionSpace": self = .optionSpace
     case "controlSpace": self = .controlSpace
     case "commandShiftSpace": self = .commandShiftSpace
@@ -424,11 +431,21 @@ enum ShortcutChoice: RawRepresentable, Equatable, Hashable, Identifiable, Codabl
     try container.encode(rawValue)
   }
 
-  /// The combo registered with Carbon; `nil` for the fn key, which has its own
-  /// event-tap / polling path.
+  /// fn and control are bare modifier keys: Carbon cannot register them, so
+  /// `GlobalHotKeyManager` watches them through HID polling plus an
+  /// Accessibility-backed event tap instead of `RegisterEventHotKey`.
+  var isBareModifierKey: Bool {
+    switch self {
+    case .functionKey, .control: return true
+    default: return false
+    }
+  }
+
+  /// The combo registered with Carbon; `nil` for the bare modifier keys, which
+  /// have their own event-tap / polling path.
   var keyCombo: KeyCombo? {
     switch self {
-    case .functionKey:
+    case .functionKey, .control:
       return nil
     case .optionSpace:
       return KeyCombo(keyCode: UInt16(kVK_Space), carbonModifiers: UInt32(optionKey))
@@ -444,10 +461,11 @@ enum ShortcutChoice: RawRepresentable, Equatable, Hashable, Identifiable, Codabl
     }
   }
 
-  /// The recorded trigger in its general form; `nil` only for the fn key.
+  /// The recorded trigger in its general form; `nil` only for the bare
+  /// modifier keys.
   var inputCombo: InputCombo? {
     switch self {
-    case .functionKey: return nil
+    case .functionKey, .control: return nil
     case .custom(let input): return input
     default: return keyCombo.map { .key($0) }
     }
@@ -456,6 +474,7 @@ enum ShortcutChoice: RawRepresentable, Equatable, Hashable, Identifiable, Codabl
   var keyLabels: [String] {
     switch self {
     case .functionKey: return ["fn"]
+    case .control: return ["control"]
     default: return inputCombo?.keyLabels ?? []
     }
   }

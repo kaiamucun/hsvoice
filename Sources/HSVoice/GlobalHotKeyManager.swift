@@ -77,6 +77,52 @@ private func handleFunctionKeyEvent(
   return nil
 }
 
+private func handleModifierKeyEvent(
+  _ proxy: CGEventTapProxy,
+  _ type: CGEventType,
+  _ event: CGEvent,
+  _ userData: UnsafeMutableRawPointer?
+) -> Unmanaged<CGEvent>? {
+  guard let userData else { return Unmanaged.passUnretained(event) }
+  let manager = Unmanaged<GlobalHotKeyManager>.fromOpaque(userData).takeUnretainedValue()
+
+  if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+    DispatchQueue.main.async { manager.reenableModifierKeyTap() }
+    return Unmanaged.passUnretained(event)
+  }
+
+  // This tap only listens. A bare control press has no system action to
+  // suppress (unlike fn's Globe action), and apps must keep seeing every
+  // modifier change and keystroke exactly as typed — ⌃C still has to reach
+  // the terminal. The callback runs on the main run loop, like the fn tap's.
+  guard let trigger = manager.activeModifierTrigger else {
+    return Unmanaged.passUnretained(event)
+  }
+
+  switch type {
+  case .flagsChanged:
+    let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+    guard trigger.keyCodes.contains(where: { Int64($0) == keyCode }) else { break }
+    if !manager.modifierTapIsConfirmed {
+      let generation = manager.currentRegistrationGeneration
+      DispatchQueue.main.async { manager.noteModifierTapDelivered(generation: generation) }
+    }
+    // The flag, not the key code, decides: with both control keys held,
+    // releasing one leaves the flag set and the trigger held.
+    let isDown = event.flags.contains(trigger.flag)
+    DispatchQueue.main.async { manager.processModifierKeyState(isDown) }
+  case .keyDown:
+    // Any key typed with control held makes this a combination, never a
+    // dictation. The event's own flags are the authoritative signal, even
+    // when the control press itself has not been observed yet.
+    guard event.flags.contains(trigger.flag) else { break }
+    DispatchQueue.main.async { manager.processOtherKeyDownWhileModifierHeld() }
+  default:
+    break
+  }
+  return Unmanaged.passUnretained(event)
+}
+
 private func handleMouseButtonEvent(
   _ proxy: CGEventTapProxy,
   _ type: CGEventType,
@@ -112,6 +158,10 @@ final class GlobalHotKeyManager {
   /// Fired on the press of the separately registered "re-insert the last
   /// dictation" shortcut.
   var onRepeatPressed: (() -> Void)?
+  /// Fired when a hold that already began a recording turns out to be a key
+  /// combination (control held, then another key). The recording is to be
+  /// discarded; no `onReleased` follows for that press.
+  var onCancelled: (() -> Void)?
 
   /// Carbon hot-key IDs (`EventHotKeyID.id`) telling the shared event handler
   /// which registration fired.
@@ -136,6 +186,13 @@ final class GlobalHotKeyManager {
   private var functionPollingTimer: Timer?
   private var functionKeyState = FunctionKeyStateTracker()
   private var functionTapConfirmed = false
+  private var modifierTrigger: ModifierKeyTrigger?
+  private var modifierTriggerState = ModifierKeyTriggerTracker()
+  private var modifierEventTap: CFMachPort?
+  private var modifierEventSource: CFRunLoopSource?
+  private var modifierPollingTimer: Timer?
+  private var modifierHoldTimer: Timer?
+  private var modifierTapConfirmed = false
   private var registrationGeneration = 0
   private var isPressed = false
 
@@ -150,6 +207,8 @@ final class GlobalHotKeyManager {
     switch shortcut {
     case .functionKey:
       return registerFunctionKey()
+    case .control:
+      return registerModifierKey(.control)
     case .custom(.mouse(let combo)):
       guard combo.isUsableAsGlobalShortcut else { return false }
       dictationMouseCombo = combo
@@ -261,6 +320,22 @@ final class GlobalHotKeyManager {
     functionPollingTimer?.invalidate()
     functionPollingTimer = nil
     functionKeyState = FunctionKeyStateTracker()
+    modifierTrigger = nil
+    modifierTriggerState = ModifierKeyTriggerTracker()
+    modifierTapConfirmed = false
+    modifierHoldTimer?.invalidate()
+    modifierHoldTimer = nil
+    modifierPollingTimer?.invalidate()
+    modifierPollingTimer = nil
+    if let modifierEventSource {
+      CFRunLoopRemoveSource(CFRunLoopGetMain(), modifierEventSource, .commonModes)
+      self.modifierEventSource = nil
+    }
+    if let modifierEventTap {
+      CGEvent.tapEnable(tap: modifierEventTap, enable: false)
+      CFMachPortInvalidate(modifierEventTap)
+      self.modifierEventTap = nil
+    }
     if let functionEventSource {
       CFRunLoopRemoveSource(CFRunLoopGetMain(), functionEventSource, .commonModes)
       self.functionEventSource = nil
@@ -576,13 +651,173 @@ final class GlobalHotKeyManager {
     let downSynthesizers = Self.fnSynthesizerKeyCodes.filter {
       CGEventSource.keyState(.hidSystemState, key: $0)
     }
-    return "fnKeyState=\(physicalFunctionKeyIsDown())"
+    var snapshot =
+      "fnKeyState=\(physicalFunctionKeyIsDown())"
       + " fnFlag=\(CGEventSource.flagsState(.hidSystemState).contains(.maskSecondaryFn))"
       + " trackerDown=\(functionKeyState.isDown)"
       + " pressed=\(isPressed)"
       + " tapActive=\(functionEventTap != nil)"
       + " tapConfirmed=\(functionTapConfirmed)"
       + " synthKeysDown=\(downSynthesizers)"
+    if let trigger = modifierTrigger {
+      snapshot +=
+        " ctrlKeyState=\(modifierKeyIsPhysicallyDown(trigger))"
+        + " ctrlFlag=\(CGEventSource.flagsState(.hidSystemState).contains(trigger.flag))"
+        + " ctrlPhase=\(modifierTriggerState.phase)"
+        + " ctrlTapActive=\(modifierEventTap != nil)"
+        + " ctrlTapConfirmed=\(modifierTapConfirmed)"
+    }
+    return snapshot
+  }
+
+  // MARK: - Bare modifier key trigger (control)
+
+  fileprivate var activeModifierTrigger: ModifierKeyTrigger? { modifierTrigger }
+
+  fileprivate var modifierTapIsConfirmed: Bool { modifierTapConfirmed }
+
+  /// Registers a bare modifier key the way fn is registered: HID polling is the
+  /// permission-free primary path, and a *listen-only* session event tap adds
+  /// zero-latency presses plus the one signal polling cannot give — the keyDown
+  /// of another key, which turns a hold into a combination.
+  private func registerModifierKey(_ trigger: ModifierKeyTrigger) -> Bool {
+    modifierTrigger = trigger
+    // A key already held while registering belongs to whatever the user was
+    // doing; it must not fire on its eventual release.
+    modifierTriggerState = ModifierKeyTriggerTracker(
+      isDown: modifierKeyIsPhysicallyDown(trigger))
+    modifierTapConfirmed = false
+    installModifierPollingTimer(interval: Timing.functionKeyPollInterval)
+
+    let eventMask =
+      (CGEventMask(1) << CGEventType.flagsChanged.rawValue)
+      | (CGEventMask(1) << CGEventType.keyDown.rawValue)
+    guard
+      let eventTap = CGEvent.tapCreate(
+        tap: .cgSessionEventTap,
+        place: .headInsertEventTap,
+        options: .listenOnly,
+        eventsOfInterest: eventMask,
+        callback: handleModifierKeyEvent,
+        userInfo: Unmanaged.passUnretained(self).toOpaque()
+      )
+    else {
+      // Without Accessibility there is no tap. Presses and releases still work
+      // through polling, and the hold threshold alone filters combinations
+      // typed at normal speed; only a slowly typed ⌃-combination can then start
+      // a recording.
+      return true
+    }
+
+    guard let eventSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0) else {
+      CFMachPortInvalidate(eventTap)
+      return true
+    }
+
+    modifierEventTap = eventTap
+    modifierEventSource = eventSource
+    CFRunLoopAddSource(CFRunLoopGetMain(), eventSource, .commonModes)
+    CGEvent.tapEnable(tap: eventTap, enable: true)
+    return true
+  }
+
+  func processModifierKeyState(_ isDown: Bool) {
+    deliver(modifierTriggerState.update(isDown: isDown))
+    syncModifierHoldTimer()
+  }
+
+  /// Another (non-modifier) key went down while the trigger modifier is held.
+  func processOtherKeyDownWhileModifierHeld() {
+    deliver(modifierTriggerState.otherKeyDown())
+    syncModifierHoldTimer()
+  }
+
+  private func modifierHoldThresholdElapsed() {
+    modifierHoldTimer = nil
+    deliver(modifierTriggerState.holdThresholdElapsed())
+  }
+
+  /// Test seam: fires the hold threshold without waiting for the timer.
+  func fireModifierHoldThresholdForTesting() {
+    modifierHoldTimer?.invalidate()
+    modifierHoldThresholdElapsed()
+  }
+
+  /// One timer per pending hold: started when the key goes down alone, dropped
+  /// as soon as the hold resolves into a tap, a combination or a release.
+  private func syncModifierHoldTimer() {
+    guard modifierTriggerState.phase == .pending else {
+      modifierHoldTimer?.invalidate()
+      modifierHoldTimer = nil
+      return
+    }
+    guard modifierHoldTimer == nil else { return }
+    let timer = Timer(timeInterval: Timing.modifierKeyHoldThreshold, repeats: false) {
+      [weak self] _ in
+      self?.modifierHoldThresholdElapsed()
+    }
+    modifierHoldTimer = timer
+    RunLoop.main.add(timer, forMode: .common)
+  }
+
+  private func deliver(_ events: [ModifierKeyTriggerTracker.Event]) {
+    for event in events {
+      switch event {
+      case .pressed: receivePressed()
+      case .released: receiveReleased()
+      case .cancelled: receiveCancelled()
+      }
+    }
+  }
+
+  fileprivate func receiveCancelled() {
+    guard isPressed else { return }
+    isPressed = false
+    onCancelled?()
+  }
+
+  fileprivate func reenableModifierKeyTap() {
+    guard let modifierEventTap else { return }
+    CGEvent.tapEnable(tap: modifierEventTap, enable: true)
+    modifierTapConfirmed = false
+    installModifierPollingTimer(interval: Timing.functionKeyPollInterval)
+  }
+
+  /// Same contract as `noteFunctionTapDelivered`: once the tap has delivered a
+  /// control event it is trusted for latency and polling drops to the watchdog.
+  fileprivate func noteModifierTapDelivered(generation: Int) {
+    guard generation == registrationGeneration else { return }
+    guard modifierEventTap != nil, !modifierTapConfirmed else { return }
+    modifierTapConfirmed = true
+    installModifierPollingTimer(interval: Timing.functionKeyWatchdogInterval)
+  }
+
+  private func installModifierPollingTimer(interval: TimeInterval) {
+    modifierPollingTimer?.invalidate()
+    let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
+      self?.pollModifierKeyState()
+    }
+    modifierPollingTimer = timer
+    RunLoop.main.add(timer, forMode: .common)
+  }
+
+  private func pollModifierKeyState() {
+    guard let trigger = modifierTrigger else { return }
+    let keyIsDown = modifierKeyIsPhysicallyDown(trigger)
+    if modifierTriggerState.isKeyDown {
+      // Like fn: a release is only reported once every signal is gone, so a
+      // flag the tap saw set is never contradicted by one stale HID read.
+      let flagIsDown = CGEventSource.flagsState(.hidSystemState).contains(trigger.flag)
+      if !keyIsDown && !flagIsDown {
+        processModifierKeyState(false)
+      }
+    } else if keyIsDown {
+      processModifierKeyState(true)
+    }
+  }
+
+  private func modifierKeyIsPhysicallyDown(_ trigger: ModifierKeyTrigger) -> Bool {
+    trigger.keyCodes.contains { CGEventSource.keyState(.hidSystemState, key: $0) }
   }
 
 }
@@ -603,5 +838,92 @@ struct FunctionKeyStateTracker {
     guard nextIsDown != isDown else { return nil }
     isDown = nextIsDown
     return nextIsDown ? .pressed : .released
+  }
+}
+
+/// A bare modifier key usable as the dictation trigger: the virtual key codes of
+/// its physical keys (HID polling asks per key) and the flag they set (events
+/// report modifier state as flags).
+struct ModifierKeyTrigger: Equatable {
+  let keyCodes: [CGKeyCode]
+  let flag: CGEventFlags
+
+  /// Either control key — Windows-layout keyboards have one on each side.
+  static let control = ModifierKeyTrigger(
+    keyCodes: [CGKeyCode(kVK_Control), CGKeyCode(kVK_RightControl)],
+    flag: .maskControl
+  )
+}
+
+/// The state machine behind a bare modifier key trigger. Unlike fn, control is
+/// combined with other keys all day long, so a press only counts once the key
+/// has been held alone past `Timing.modifierKeyHoldThreshold`, and any other key
+/// going down while it is held makes the whole hold a combination that belongs
+/// to the frontmost app.
+///
+/// Pure: the caller owns the threshold timer and the HID/tap inputs, which keeps
+/// every transition unit-testable.
+struct ModifierKeyTriggerTracker: Equatable {
+  enum Phase: Equatable {
+    /// Key up.
+    case idle
+    /// Key down, threshold not yet elapsed, no other key seen.
+    case pending
+    /// Held alone past the threshold: `.pressed` has been delivered.
+    case active
+    /// Part of a combination (or held since registration): nothing fires until
+    /// the key is released.
+    case suppressed
+  }
+
+  enum Event: Equatable {
+    case pressed
+    case released
+    /// An `.active` hold became a combination; the press it delivered is void
+    /// and no `.released` follows.
+    case cancelled
+  }
+
+  private(set) var phase: Phase
+
+  init(isDown: Bool = false) {
+    phase = isDown ? .suppressed : .idle
+  }
+
+  var isKeyDown: Bool { phase != .idle }
+
+  mutating func update(isDown: Bool) -> [Event] {
+    if isDown {
+      guard phase == .idle else { return [] }
+      phase = .pending
+      return []
+    }
+    let previous = phase
+    phase = .idle
+    switch previous {
+    case .idle, .suppressed:
+      return []
+    case .pending:
+      // Released before the threshold: a tap. Toggle and auto activation need
+      // the press as much as the release, so both are delivered back to back.
+      return [.pressed, .released]
+    case .active:
+      return [.released]
+    }
+  }
+
+  mutating func holdThresholdElapsed() -> [Event] {
+    guard phase == .pending else { return [] }
+    phase = .active
+    return [.pressed]
+  }
+
+  /// A non-modifier key went down while the trigger modifier is held. The
+  /// caller checks the event's flags, so this may arrive before the modifier's
+  /// own down was observed; the hold is then suppressed from the start.
+  mutating func otherKeyDown() -> [Event] {
+    let wasActive = phase == .active
+    phase = .suppressed
+    return wasActive ? [.cancelled] : []
   }
 }

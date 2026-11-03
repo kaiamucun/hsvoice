@@ -76,6 +76,7 @@ final class AppModel: ObservableObject {
     restoreAutomaticInsertionIfAvailable()
     hotKeyManager.onPressed = { [weak self] in self?.handleShortcutPressed() }
     hotKeyManager.onReleased = { [weak self] in self?.handleShortcutReleased() }
+    hotKeyManager.onCancelled = { [weak self] in self?.handleShortcutCancelled() }
     hotKeyManager.onRepeatPressed = { [weak self] in self?.handleRepeatShortcutPressed() }
     sessionIsActive = UserSession.isOnConsole()
     observeSessionActivity()
@@ -265,6 +266,16 @@ final class AppModel: ObservableObject {
     stopListening()
   }
 
+  /// The control-key trigger turned out to be the start of a key combination
+  /// (control held past the threshold, then another key): whatever the hold
+  /// started is discarded rather than typed, and the combination itself goes
+  /// to the frontmost app untouched.
+  func handleShortcutCancelled() {
+    shortcutPressedAt = nil
+    guard state == .listening else { return }
+    cancelListening()
+  }
+
   func toggleListening() {
     switch state {
     case .listening:
@@ -432,7 +443,9 @@ final class AppModel: ObservableObject {
     // anything, so this is what actually warms the recognizer for the very first
     // dictation after onboarding.
     prewarmRecognizerIfPossible()
-    if settings.shortcutChoice == .functionKey, state.allowsConfigurationChanges,
+    // fn and control run on an Accessibility-backed event tap when they can:
+    // re-register so a fresh grant upgrades them from polling alone.
+    if settings.shortcutChoice.isBareModifierKey, state.allowsConfigurationChanges,
       ShortcutRegistrationPolicy.shouldRegister(
         sessionIsActive: sessionIsActive, isCapturingShortcut: isCapturingShortcut)
     {
